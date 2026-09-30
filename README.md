@@ -15,9 +15,13 @@ accounts — with notifications, loops, voice input, token analytics and quota v
 
 </div>
 
-<!-- Screenshot: save a screenshot as docs/images/cockpit.png and remove this comment's markers.
-<p align="center"><img src="docs/images/cockpit.png" alt="Robs AI Cockpit with four agent panes" width="900" /></p>
--->
+<p align="center">
+  <img src="docs/images/hero.png" alt="Robs AI Cockpit: four agents working in one project: Claude waits for its limit reset, three Codex agents review, test and document" width="100%" />
+</p>
+
+<p align="center"><b>Your AI coding team, in one window.</b><br/>
+Claude Code and Codex agents work side by side on real terminals, and you step in only when one
+of them actually needs you.</p>
 
 Robs AI Cockpit is a local-first desktop app and the control plane for your AI coding agents. The
 official `claude` and `codex` binaries do all the work and handle authentication themselves. The
@@ -26,39 +30,78 @@ needs you, and reads their local logs (read-only) to show what happened.
 
 **No backend. No telemetry. No API keys. No stored credentials.**
 
-```
-┌────────────┬──────────────────────┬──────────────────────┐
-│ Projects   │ Claude A  [terminal] │ Claude B  [terminal] │
-│ Sessions   ├──────────────────────┼──────────────────────┤
-│            │ Codex     [terminal] │ + New session        │
-├────────────┴──────────────────────┴──────────────────────┤
-│ ● Claude A 5h 68% wk 39%  ● Claude B …  ● Codex 5h 0%    │
-└──────────────────────────────────────────────────────────┘
-```
+## Why?
 
-## Highlights
+Running one coding agent is easy. Running four gets messy: terminals everywhere, you miss the
+moment one is done, one account hits its limit while another sits idle, and nobody knows what
+was changed where. The cockpit turns that into one calm dashboard.
 
-* **1–8 live terminal panes**: resizable grid or tabs. Every pane runs the real CLI and stays
-  fully interactive.
-* **Mission control** (`Ctrl+0`): every agent at a glance. It shows what each one is doing right
-  now, its last answer, changed files, git state, context % and loop progress, and you can reply
-  right from the card.
-* **Notifications that find you**: a pop-up bottom-right, on top of every program and without
-  stealing focus, when an agent is done, needs input or hits a limit. You can reply or dictate
-  from the pop-up. Optional phone push via ntfy.
-* **Multiple accounts**: any number of Claude / Codex profiles, each isolated in its own
-  `CLAUDE_CONFIG_DIR` / `CODEX_HOME`. It shows 5-hour and weekly quota with the time until reset.
-* **Auto-continue after usage limits**: the cockpit waits for the reset and types "continue" for
-  you.
-* **Loops, prompt queues and a task board**, with auto-dispatch to idle agents, a night shift,
-  and a git worktree per task.
-* **Voice input**: local whisper.cpp with system-wide push-to-talk, per-pane shortcuts and spoken
-  commands. Audio never leaves your computer.
-* **Token analytics**: measured from the providers' local logs. Breaks down by provider,
-  account, model, project, session, hour and day, and shows the cache hit rate.
+## A tour
+
+### Every agent in its own live terminal
+Up to **8 panes** in a grid or as tabs. Each one runs the real CLI and stays fully interactive:
+type, scroll, copy and paste as usual. The pane header shows the account, model, autonomy mode,
+live status and context use. Drag sessions between panes, focus one with a double-click, and
+hidden sessions keep running.
+
+### Pop-ups the moment an agent needs you
+<img src="docs/images/notifications.png" alt="Heads-up notifications with the agent's last answer and a reply box" width="100%" />
+
+When an agent **finishes, needs a permission or hits a limit**, a pop-up appears bottom-right,
+on top of every program and without stealing focus. It shows the agent's actual answer, how long
+the agent took and how many files changed. You can reply, dictate or jump to the session right
+from the pop-up. Optional phone push via [ntfy](https://ntfy.sh) when you're away.
+
+### Mission control
+<img src="docs/images/overview.png" alt="Overview: agent cards, quota per account with reset countdown, recently changed files, activity timeline" width="100%" />
+
+`Ctrl+0` shows every agent at a glance: what it is doing right now, its last answer, git branch
+and uncommitted files, loop progress and tokens. For each account it shows **5-hour and weekly
+quota** with a reset countdown and a pace warning: *"At this pace the limit is reached before the
+reset."* Next to that are recently changed files (click for the diff) and a live activity
+timeline.
+
+### Talk to your agents
+<img src="docs/images/voice.png" alt="Voice input: Listening to Docs, with the target chooser 1-4" width="100%" />
+
+Press **Alt+Shift+Space** from any program, speak, and release. The text lands in the focused
+agent. Press `1`–`8` while recording to switch the target, and say *"…absenden"* to press Enter
+for you. Spoken commands such as *"Fenster 3 stopp"* or *"alle weiter"* control the panes.
+Transcription runs **locally** with whisper.cpp; audio never leaves your computer.
+
+### Hand out work with the task board
+<img src="docs/images/tasks.png" alt="Task board with open, running, review and done columns and agents on the right" width="100%" />
+
+Collect tasks, then drag one onto an agent or let **auto-dispatch** hand tasks to idle agents.
+When an agent finishes, its answer lands in *Review*. From there you can give feedback, let
+another agent review it, or mark it done. A **night shift** works through the list until
+morning and writes a report. With a **git worktree per task**, agents never step on each other's
+files.
+
+### Loops, queues and templates
+<img src="docs/images/loops.png" alt="Loops and prompt queues with progress, and a prompt template library" width="100%" />
+
+A **prompt queue** sends the next prompt as soon as the agent is done with the previous one. A
+**loop** repeats until a stop phrase such as *"ALL TESTS PASS"*, or for N rounds. A reusable
+template library is also in the command palette (`Ctrl+P`).
+
+### Know where your tokens go
+<img src="docs/images/usage.png" alt="Usage analytics: total tokens, per account, API-equivalent value, tokens per day, week and hour" width="100%" />
+
+The token figures are **measured** from the providers' own local logs, not estimated. They break
+down by account, model, project, day and hour, and include the cache hit rate. The cockpit also
+shows the *API-equivalent value* of your subscription usage and a Markdown report per week or
+month.
+
+### Hit a limit? It continues by itself
+When a CLI reports a usage limit, the cockpit reads the reset time, waits, and types "continue"
+at the right moment. You can see it in the top-left pane above: *rate limited · continues Fr
+11:01*. Optionally, the same conversation can move to another logged-in account.
+
+## Everything it can do
 
 <details>
-<summary><b>All features</b></summary>
+<summary><b>Full feature list</b></summary>
 
 * **Overview (mission control, Ctrl+0)**: every agent at a glance, agents waiting for you first.
   Each card shows what the agent is doing right now ("Editing store.ts", "Running npm test") and

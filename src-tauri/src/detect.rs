@@ -37,7 +37,7 @@ pub struct Detection {
 
 static RATE_LIMITED: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?i)(usage limit reached|you've hit your (usage )?limit|you have hit your (usage )?limit|limit reached.{0,40}resets|rate[- ]limit(ed)? (exceeded|reached)|out of (extra )?usage|(5-hour|weekly|session) limit reached)",
+        r"(?i)(usage limit reached|you(?:'|’)?ve hit your (?:[\w-]+ ){0,2}limit|you have hit your (?:[\w-]+ ){0,2}limit|limit reached.{0,40}resets|rate[- ]limit(ed)? (exceeded|reached)|out of (extra )?usage|(5-hour|weekly|session) limit reached)",
     )
     .unwrap()
 });
@@ -210,6 +210,18 @@ mod tests {
         let d = scan("5-hour limit reached ∙ resets 3am").unwrap();
         assert_eq!(d.signal, Signal::RateLimited);
         assert_eq!(d.reset_hint.as_deref(), Some("3am"));
+    }
+
+    #[test]
+    fn detects_claude_weekly_limit_and_reset_date() {
+        // Claude Code 2.1.28x: "You've hit your weekly limit · resets Oct 2, 11am (Europe/Berlin)".
+        for line in ["  L You've hit your weekly limit · resets Oct 2, 11am (Europe/Berlin)", "You’ve hit your Opus limit · resets 3am"] {
+            assert_eq!(scan(line).unwrap().signal, Signal::RateLimited, "{line}");
+        }
+        use chrono::TimeZone;
+        let now = chrono::Local.with_ymd_and_hms(2026, 9, 30, 20, 0, 0).unwrap();
+        let at = reset_at_ms("You've hit your weekly limit · resets Oct 2, 11am (Europe/Berlin)", now).unwrap();
+        assert_eq!(at, chrono::Local.with_ymd_and_hms(2026, 10, 2, 11, 0, 0).unwrap().timestamp_millis());
     }
 
     #[test]

@@ -525,7 +525,7 @@ pub fn find_rollout(home: &Path, cwd: &str, started_ms: i64, psid: Option<&str>,
 }
 
 static TRUST_PROMPT: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| {
-    regex::Regex::new(r"(?i)(trust (the files|this folder|the contents|this directory)|one you trust|allow codex to work|sign in with (chatgpt|device code)|provide your own api key|select login method|choose the text style|press enter to continue|finish signing in|log in to|login method)").unwrap()
+    regex::Regex::new(r"(?i)(trust (the files|this folder|the contents|this directory)|one you trust|allow codex to work|sign in with (chatgpt|device code)|provide your own api key|select login method|choose the text style|press enter to continue|finish signing in|log in to|login method|update now \(runs)").unwrap()
 });
 
 pub const DIALOG_NOTICE: &str = "Answer the dialog in the terminal (e.g. trust this folder) — your queued task is sent right after";
@@ -743,9 +743,13 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
     let mut new_activity: Vec<(String, crate::activity::Activity)> = Vec::new();
     let mut automation_saves: Vec<crate::automation::Automation> = Vec::new();
     let mut rts = runtimes.lock();
-    let claimed: Vec<PathBuf> = rts.values().filter_map(|r| r.rollout.clone()).collect();
+    let mut claimed: Vec<PathBuf> = rts.values().filter_map(|r| r.rollout.clone()).collect();
     let now = now_ms();
-    for rt in rts.values_mut() {
+    // Oldest session first: Codex agents started together in one folder claim their rollout
+    // logs in start order, and a log found in this tick is taken before the next one looks.
+    let mut order: Vec<&mut Runtime> = rts.values_mut().collect();
+    order.sort_by_key(|r| r.started_ms);
+    for rt in order {
         let handle = pty.get(&rt.id);
         let (running, exited, code, out_ms, in_ms, detection, pid) = match &handle {
             Some(h) => (
@@ -764,7 +768,12 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
         if running && rt.kind == "agent" {
             match rt.provider {
                 Provider::Claude if rt.hooks => poll_claude(rt, db),
-                Provider::Codex => poll_codex(rt, db, &claimed),
+                Provider::Codex => {
+                    poll_codex(rt, db, &claimed);
+                    if let Some(p) = rt.rollout.as_ref().filter(|p| !claimed.contains(p)) {
+                        claimed.push(p.clone());
+                    }
+                }
                 _ => {}
             }
         }
@@ -1115,6 +1124,8 @@ mod tests {
         assert!(!ok(Provider::Claude, true, true, 97_000, "Do you trust the files in this folder?\r\n❯ 1. Yes, proceed"));
         assert!(!ok(Provider::Codex, false, false, 97_000, "Do you trust the contents of this directory?"));
         assert!(!ok(Provider::Codex, false, false, 97_000, "> 1. Sign in with ChatGPT\n  2. Sign in with Device Code"));
+        // Enter on Codex's update prompt would run `npm install -g`: never type into it.
+        assert!(!ok(Provider::Codex, false, false, 97_000, "› Ask Codex to do anything\n  Update available · 0.157.1 → 0.159.2\n› 1. Update now (runs `npm install -g @openai/codex`)\n  2. Skip"));
     }
 
     fn base() -> StatusInputs {

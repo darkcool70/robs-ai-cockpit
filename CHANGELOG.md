@@ -22,6 +22,12 @@ First public release.
 ### Fixed
 - Notifications were delayed by minutes while the cockpit was minimized or in the background:
   WebView2 background throttling is now disabled for the main and the notification window.
+- Claude Code's new "You've hit your weekly limit · resets Oct 2, 11am" message was not
+  recognised, so limits showed as "working" and auto-continue never started.
+- Several Codex agents started together in one folder could be attached to the same Codex
+  conversation, so "resume" opened the same thread in every pane.
+- Codex's "Update available" prompt now counts as a dialog: queued text is never typed into it
+  (Enter there would run `npm install -g`), and the pane asks you to answer it.
 
 [Unreleased]: https://github.com/darkcool70/robs-ai-cockpit/compare/v0.1.0...HEAD
 [0.1.0]: https://github.com/darkcool70/robs-ai-cockpit/releases/tag/v0.1.0
