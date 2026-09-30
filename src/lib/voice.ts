@@ -1,0 +1,567 @@
+// Dictation: global shortcuts (one per session + "focused pane") → record → local Whisper →
+// text typed into the target session. Tap = start/stop, hold = push-to-talk.
+import { register, unregister, unregisterAll, type ShortcutEvent } from "@tauri-apps/plugin-global-shortcut";
+import { listen } from "@tauri-apps/api/event";
+import { api, errMsg } from "./api";
+import { useApp } from "../store";
+
+// Ctrl+Alt+Space is often taken (IMEs, overlays); Alt+Shift+Space is free and clashes with no editor.
+export const DEFAULT_FOCUSED_HOTKEY = "Alt+Shift+Space";
+/** Modifiers for "dictate into pane N" (N = 1…8); same as the main shortcut so one hand does both. */
+export const DEFAULT_PANE_MODIFIER = "Alt+Shift";
+export const PANE_MODIFIERS: { value: string; label: string }[] = [
+  { value: "Alt+Shift", label: "Alt + Shift + 1…8" },
+  { value: "Control+Shift", label: "Ctrl + Shift + 1…8" },
+  { value: "Control+Alt+Shift", label: "Ctrl + Alt + Shift + 1…8" },
+  { value: "", label: "Off" },
+];
+export type VoiceTargetDefault = "focused" | "waiting" | "last";
+
+/** On German (and many other) layouts Ctrl+Alt+key is AltGr+key: stealing it breaks typing. */
+const ALTGR_CHARS: Record<string, string> = {
+  Digit2: "²", Digit3: "³", Digit7: "{", Digit8: "[", Digit9: "]", Digit0: "}", KeyQ: "@", KeyE: "€", KeyM: "µ",
+  Minus: "\\", BracketRight: "~", IntlBackslash: "|",
+};
+export function altGrConflict(h: string | null | undefined): string | null {
+  if (!h) return null;
+  const parts = h.split("+");
+  if (!parts.includes("Control") || !parts.includes("Alt") || parts.includes("Shift")) return null;
+  return ALTGR_CHARS[parts[parts.length - 1]] ?? null;
+}
+const TAP_MS = 350;
+
+export type VoiceState = "idle" | "recording" | "transcribing";
+export interface Voice {
+  state: VoiceState;
+  target: string | null;
+  level: number;
+}
+
+/** A session you can switch the dictation to while recording (number = pane number). */
+export interface VoiceChoice {
+  n: number;
+  id: string;
+  name: string;
+  status: string;
+}
+
+let current = ""; // serialised shortcut → target map that is registered right now
+let paused = false;
+let pressedAt = 0;
+let listening = false;
+let lastTarget: string | null = null;
+/** Session that received the last dictation (read-aloud "only for the session I talk to"). */
+export function lastDictatedTarget(): string | null {
+  return lastTarget;
+}
+let hotkeysDirty = false;
+
+/** How Whisper tends to write spoken names and numbers. */
+const WORD_VARIANTS: Record<string, string> = {
+  claude: "claude|cloud|clod|klod|claud|klaud|clode",
+  codex: "codex|kodex|codecs|kodecs|co-dex",
+  pane: "pane|fenster|terminal|session",
+  "1": "1|eins|one",
+  "2": "2|zwei|two",
+  "3": "3|drei|three",
+  "4": "4|vier|four",
+  "5": "5|fünf|fuenf|five",
+  "6": "6|sechs|six",
+  "7": "7|sieben|seven",
+  "8": "8|acht|eight",
+  a: "a|ah",
+  b: "b|be|bee",
+  c: "c|ce|see",
+};
+
+function escapeRe(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export interface RouteCandidate {
+  id: string;
+  names: string[];
+}
+
+/** Regex that matches a name as spoken at the start of the text, followed by , : ; . ! or a dash. */
+function namePattern(name: string): RegExp | null {
+  const words = name.toLowerCase().replace(/[#·()]/g, " ").split(/\s+/).filter(Boolean);
+  if (!words.length || words.join("").length < 2) return null;
+  const body = words.map((w) => `(?:${WORD_VARIANTS[w] ?? escapeRe(w)})`).join("[\\s-]+");
+  return new RegExp(`^\\s*(?:(?:an|für|fur|to|hey|ok)\\s+)?${body}\\s*[,:;.!\\u2013-]+\\s*`, "iu");
+}
+
+/**
+ * "Claude B, run the tests" → send "Run the tests" to the session called "Claude B".
+ * Only a name at the very start followed by punctuation counts, so sentences that merely
+ * mention a name are never rerouted. Longer names win ("Claude B #2" before "Claude B").
+ */
+export function routeSpoken(text: string, candidates: RouteCandidate[]): { id: string; text: string } | null {
+  const options = candidates
+    .flatMap((c) => c.names.map((n) => ({ id: c.id, name: n })))
+    .sort((a, b) => b.name.length - a.name.length);
+  for (const o of options) {
+    const re = namePattern(o.name);
+    const m = re ? text.match(re) : null;
+    if (!m) continue;
+    const rest = text.slice(m[0].length).trim();
+    if (!rest) return null;
+    return { id: o.id, text: rest.charAt(0).toUpperCase() + rest.slice(1) };
+  }
+  return null;
+}
+
+/** Name candidates for spoken routing: session names, unique account names, "pane N". */
+export function routeCandidates(): RouteCandidate[] {
+  const st = useApp.getState();
+  const running = Object.values(st.sessions).filter((s) => s.kind === "agent" && s.runtime?.running);
+  const accountCount = new Map<string, number>();
+  for (const s of running) if (s.accountId) accountCount.set(s.accountId, (accountCount.get(s.accountId) ?? 0) + 1);
+  return running.map((s) => {
+    const names = [s.name];
+    const acc = st.accounts.find((a) => a.id === s.accountId);
+    if (acc && accountCount.get(acc.id) === 1) names.push(acc.name);
+    const pane = st.panes.indexOf(s.id);
+    if (pane >= 0) names.push(`pane ${pane + 1}`);
+    return { id: s.id, names };
+  });
+}
+
+export type ControlCommand =
+  | { action: "stop" | "zoom" | "focus"; pane: number }
+  | { action: "view"; view: "overview" | "tasks" | "workspace" | "review" }
+  | { action: "continue-all" }
+  | { action: "show-all" };
+
+const NUMBER_WORDS: Record<string, number> = {
+  eins: 1, ein: 1, one: 1, zwei: 2, two: 2, drei: 3, three: 3, vier: 4, four: 4,
+  "fünf": 5, fuenf: 5, five: 5, sechs: 6, six: 6, sieben: 7, seven: 7, acht: 8, eight: 8,
+};
+function paneNumber(w: string): number | null {
+  const n = /^[1-8]$/.test(w) ? Number(w) : NUMBER_WORDS[w];
+  return n ?? null;
+}
+
+/**
+ * Short spoken commands that steer the cockpit instead of being typed: "Fenster 3 stopp",
+ * "Fenster zwei groß", "zeig Fenster 4", "zeig die Übersicht", "alle weiter", "alle Fenster".
+ * Only whole, short utterances count — a sentence that merely contains the words is typed.
+ */
+export function parseControl(text: string): ControlCommand | null {
+  const t = text.toLowerCase().replace(/[.,!?;:]+/g, " ").replace(/\bbitte\b/g, " ").replace(/\s+/g, " ").trim();
+  if (!t || t.split(" ").length > 5) return null;
+  const pane = "(?:fenster|pane|session|terminal)";
+  const num = "([1-8]|eins|ein|one|zwei|two|drei|three|vier|four|fünf|fuenf|five|sechs|six|sieben|seven|acht|eight)";
+  let m = t.match(new RegExp(`^${pane} ${num} (stopp|stop|stoppen|anhalten|beenden)$`));
+  if (m) return { action: "stop", pane: paneNumber(m[1])! };
+  m = t.match(new RegExp(`^${pane} ${num} (groß|gross|maximieren|maximiert|fokus|zoom|vollbild)$`));
+  if (m) return { action: "zoom", pane: paneNumber(m[1])! };
+  m = t.match(new RegExp(`^(?:zeig|zeige|öffne|oeffne|show|open|gehe zu|go to) ${pane} ${num}$`));
+  if (m) return { action: "focus", pane: paneNumber(m[1])! };
+  if (/^(?:zeig|zeige|öffne|oeffne|show|open) (?:die |the )?(?:übersicht|uebersicht|overview)$/.test(t)) return { action: "view", view: "overview" };
+  if (/^(?:zeig|zeige|öffne|oeffne|show|open) (?:die |the )?(?:aufgaben|tasks|task board)$/.test(t)) return { action: "view", view: "tasks" };
+  if (/^(?:zeig|zeige|öffne|oeffne|show|open) (?:das |den |the )?(?:review|änderungen|aenderungen|changes)$/.test(t)) return { action: "view", view: "review" };
+  if (/^(?:alle|all|everyone) (?:weiter|weitermachen|fortsetzen|continue)$/.test(t)) return { action: "continue-all" };
+  if (/^(?:alle fenster|alle zeigen|alle anzeigen|show all|all panes)$/.test(t)) return { action: "show-all" };
+  return null;
+}
+
+/** Carry out a spoken control command; returns a short confirmation. */
+export async function runControl(cmd: ControlCommand): Promise<string> {
+  const st = useApp.getState();
+  const idAt = (n: number) => voiceChoices().find((c) => c.n === n)?.id ?? null;
+  switch (cmd.action) {
+    case "stop": {
+      const id = idAt(cmd.pane);
+      if (!id) return `Pane ${cmd.pane} is empty`;
+      await st.stopSession(id);
+      return `Stopped ${st.sessions[id]?.name ?? `pane ${cmd.pane}`}`;
+    }
+    case "zoom":
+      if (!st.panes[cmd.pane - 1]) return `Pane ${cmd.pane} is empty`;
+      st.setZoom(cmd.pane - 1);
+      return `Pane ${cmd.pane} in focus`;
+    case "focus":
+      st.focusPane(cmd.pane - 1);
+      return `Pane ${cmd.pane}`;
+    case "view":
+      st.setView(cmd.view);
+      return cmd.view;
+    case "show-all":
+      st.setZoom(null);
+      return "All panes";
+    case "continue-all": {
+      const msg = typeof st.settings.autoContinueMessage === "string" && st.settings.autoContinueMessage.trim() ? st.settings.autoContinueMessage : "weiter";
+      const waiting = Object.values(st.sessions).filter((s) => s.kind === "agent" && s.runtime?.running && s.runtime.status === "waiting-for-input");
+      for (const s of waiting) await st.queueInput(s.id, msg);
+      return waiting.length ? `"${msg}" → ${waiting.map((s) => s.name).join(", ")}` : "No agent is waiting";
+    }
+  }
+}
+
+let audioCtx: AudioContext | null = null;
+/** Short tone: rising when recording starts, falling when it stops. */
+export function cue(kind: "start" | "stop" | "error" | "switch") {
+  if (useApp.getState().settings.voiceSounds === false) return;
+  try {
+    audioCtx ??= new AudioContext();
+    const ctx = audioCtx;
+    const t = ctx.currentTime;
+    const freqs = kind === "start" ? [520, 780] : kind === "stop" ? [700, 470] : kind === "switch" ? [880] : [300, 300];
+    freqs.forEach((f, i) => {
+      const o = ctx.createOscillator();
+      const g = ctx.createGain();
+      o.frequency.value = f;
+      g.gain.setValueAtTime(0.0001, t + i * 0.07);
+      g.gain.exponentialRampToValueAtTime(0.09, t + i * 0.07 + 0.015);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.07 + 0.12);
+      o.connect(g).connect(ctx.destination);
+      o.start(t + i * 0.07);
+      o.stop(t + i * 0.07 + 0.15);
+    });
+  } catch {
+    /* no audio device */
+  }
+}
+
+/** "Control+Alt+Digit1" → "Ctrl + Alt + 1" */
+export function prettyHotkey(h: string | null | undefined): string {
+  if (!h) return "";
+  return h
+    .split("+")
+    .map((p) =>
+      p === "Control" ? "Ctrl" : p === "Super" ? "Win" : p.replace(/^Digit/, "").replace(/^Key/, "").replace(/^Numpad/, "Num "),
+    )
+    .join(" + ");
+}
+
+/** Accelerator from a keydown, or null while only modifiers are held. */
+export function hotkeyFromEvent(e: Pick<KeyboardEvent, "ctrlKey" | "altKey" | "shiftKey" | "metaKey" | "code">): string | null {
+  if (/^(Control|Alt|Shift|Meta|OS)(Left|Right)?$/.test(e.code) || !e.code) return null;
+  const mods = [e.ctrlKey && "Control", e.altKey && "Alt", e.shiftKey && "Shift", e.metaKey && "Super"].filter(Boolean) as string[];
+  const fkey = /^F\d{1,2}$/.test(e.code);
+  if (!mods.length && !fkey) return null;
+  return [...mods, e.code].join("+");
+}
+
+function desired(): Map<string, string> {
+  const st = useApp.getState();
+  const map = new Map<string, string>();
+  if (st.settings.voiceEnabled === false) return map;
+  const focused = typeof st.settings.voiceHotkeyFocused === "string" ? st.settings.voiceHotkeyFocused : DEFAULT_FOCUSED_HOTKEY;
+  if (focused) map.set(focused, "focused");
+  const mod = paneModifier(st.settings);
+  if (mod) for (let n = 1; n <= 8; n++) map.set(`${mod}+Digit${n}`, `pane:${n}`);
+  for (const id of st.order) {
+    const s = st.sessions[id];
+    if (s?.voiceHotkey && !map.has(s.voiceHotkey)) map.set(s.voiceHotkey, id);
+  }
+  return map;
+}
+
+/** Register exactly the shortcuts that are configured. Cheap when nothing changed. */
+export async function syncHotkeys(force = false) {
+  if (paused) return;
+  // Re-registering while a shortcut is held would lose its "released" event (push-to-talk).
+  if (useApp.getState().voice.state !== "idle") {
+    hotkeysDirty = true;
+    return;
+  }
+  hotkeysDirty = false;
+  const want = desired();
+  const key = JSON.stringify([...want.entries()].sort());
+  if (key === current && !force) return;
+  current = key;
+  try {
+    await unregisterAll();
+  } catch {
+    /* plugin unavailable (tests) */
+    return;
+  }
+  const failed: string[] = [];
+  for (const [shortcut, target] of want) {
+    try {
+      await register(shortcut, (ev: ShortcutEvent) => void onShortcut(target, ev));
+    } catch {
+      failed.push(prettyHotkey(shortcut));
+    }
+  }
+  if (failed.length) {
+    useApp.getState().toast(`Shortcut not available (used by another program?): ${failed.join(", ")}`, "warn");
+  }
+}
+
+/** While a hotkey is being recorded in a dialog, the old ones must not fire. */
+export async function pauseHotkeys() {
+  paused = true;
+  current = "";
+  try {
+    await unregisterAll();
+  } catch {
+    /* ignore */
+  }
+}
+export async function resumeHotkeys() {
+  paused = false;
+  await syncHotkeys(true);
+}
+
+export function paneModifier(settings: Record<string, unknown>): string {
+  return typeof settings.voicePaneModifier === "string" ? settings.voicePaneModifier : DEFAULT_PANE_MODIFIER;
+}
+
+/** Sessions numbered like the panes (tabs layout: running agents in order). */
+export function voiceChoices(): VoiceChoice[] {
+  const st = useApp.getState();
+  const ids: (string | null)[] = st.mode === "tabs"
+    ? st.order.filter((id) => st.sessions[id]?.kind === "agent" && st.sessions[id]?.runtime?.running)
+    : st.panes;
+  const out: VoiceChoice[] = [];
+  ids.forEach((id, i) => {
+    const s = id ? st.sessions[id] : undefined;
+    if (s && i < 8) out.push({ n: i + 1, id: s.id, name: s.name, status: s.runtime?.status ?? s.status });
+  });
+  return out;
+}
+
+function resolveTarget(target: string): string | null {
+  const st = useApp.getState();
+  if (target.startsWith("pane:")) {
+    const n = Number(target.slice(5));
+    return voiceChoices().find((c) => c.n === n)?.id ?? null;
+  }
+  if (target !== "focused") return st.sessions[target] ? target : null;
+  const fallback = st.panes[st.focused] ?? voiceChoices()[0]?.id ?? null;
+  const pref = st.settings.voiceTargetDefault as VoiceTargetDefault | undefined;
+  if (pref === "last" && lastTarget && st.sessions[lastTarget]?.runtime?.running) return lastTarget;
+  if (pref === "waiting") {
+    // The agent that finished most recently is usually the one you want to answer.
+    const waiting = Object.values(st.sessions)
+      .filter((s) => s.kind === "agent" && s.runtime?.running && s.runtime.status === "waiting-for-input")
+      .sort((a, b) => (b.runtime?.turnEndedAt ?? 0) - (a.runtime?.turnEndedAt ?? 0));
+    if (waiting[0]) return waiting[0].id;
+  }
+  return fallback;
+}
+
+/** While recording: switch the target to pane `n`. */
+export function retarget(n: number) {
+  const st = useApp.getState();
+  if (st.voice.state !== "recording") return;
+  const c = voiceChoices().find((x) => x.n === n);
+  if (!c || c.id === st.voice.target) return;
+  st.setVoice({ ...st.voice, target: c.id });
+  cue("switch");
+}
+
+/** While recording: next / previous session (arrow keys). */
+export function cycleTarget(dir: 1 | -1) {
+  const st = useApp.getState();
+  if (st.voice.state !== "recording") return;
+  const list = voiceChoices();
+  if (list.length < 2) return;
+  const i = list.findIndex((c) => c.id === st.voice.target);
+  const next = list[(i + dir + list.length) % list.length];
+  st.setVoice({ ...st.voice, target: next.id });
+  cue("switch");
+}
+
+// Keys that exist only while recording: 1–8 / arrows switch the target, Enter sends, Esc cancels.
+let pickerKeys: string[] = [];
+let pickerGen = 0;
+let pickerArming: Promise<void> = Promise.resolve();
+
+export function pickerBindings(settings: Record<string, unknown>): [string, () => void][] {
+  const main = typeof settings.voiceHotkeyFocused === "string" ? settings.voiceHotkeyFocused : DEFAULT_FOCUSED_HOTKEY;
+  const mainMods = main ? main.split("+").slice(0, -1).join("+") : "";
+  const paneMod = paneModifier(settings);
+  const out: [string, () => void][] = [];
+  // Bare keys (tap mode) and, for push-to-talk, the same keys with the held modifiers.
+  const prefixes = ["", ...(mainMods ? [`${mainMods}+`] : [])];
+  for (const pre of prefixes) {
+    if (!(pre && mainMods === paneMod)) {
+      // (with the pane modifier these digits are the pane shortcuts already)
+      for (let n = 1; n <= 8; n++) out.push([`${pre}Digit${n}`, () => retarget(n)]);
+    }
+    if (!pre) for (let n = 1; n <= 8; n++) out.push([`Numpad${n}`, () => retarget(n)]);
+    out.push([`${pre}ArrowRight`, () => cycleTarget(1)]);
+    out.push([`${pre}ArrowLeft`, () => cycleTarget(-1)]);
+  }
+  out.push(["Enter", () => void stopDictation(true)]);
+  out.push(["Escape", () => void cancelDictation()]);
+  return out;
+}
+
+function armPicker() {
+  const settings = useApp.getState().settings;
+  if (settings.voicePickWhileRecording === false) return;
+  const gen = ++pickerGen;
+  pickerArming = (async () => {
+    for (const [key, run] of pickerBindings(settings)) {
+      if (gen !== pickerGen) return;
+      try {
+        await register(key, (ev: ShortcutEvent) => { if (ev.state === "Pressed") run(); });
+      } catch {
+        continue; // taken by another program: that key just doesn't switch
+      }
+      if (gen !== pickerGen) {
+        await unregister(key).catch(() => {});
+        return;
+      }
+      pickerKeys.push(key);
+    }
+  })();
+}
+
+async function disarmPicker() {
+  pickerGen++;
+  await pickerArming.catch(() => {});
+  const keys = pickerKeys;
+  pickerKeys = [];
+  if (keys.length) await unregister(keys).catch(() => {});
+}
+
+async function onShortcut(target: string, ev: ShortcutEvent) {
+  const v = useApp.getState().voice;
+  // A pane shortcut while recording switches the target instead of stopping.
+  if (target.startsWith("pane:") && v.state === "recording") {
+    if (ev.state === "Pressed") retarget(Number(target.slice(5)));
+    return;
+  }
+  if (ev.state === "Pressed") {
+    if (v.state === "recording") {
+      // Second press after a tap: stop.
+      if (Date.now() - pressedAt > TAP_MS) await stopDictation();
+      return;
+    }
+    if (v.state === "transcribing") return;
+    pressedAt = Date.now();
+    const id = resolveTarget(target);
+    if (!id) {
+      useApp.getState().toast(
+        target === "focused" ? "No session in the focused pane" : target.startsWith("pane:") ? `Pane ${target.slice(5)} is empty` : "That session is closed",
+        "warn",
+      );
+      return;
+    }
+    await startDictation(id);
+  } else if (ev.state === "Released") {
+    // Held longer than a tap: push-to-talk, release sends.
+    if (v.state === "recording" && Date.now() - pressedAt > TAP_MS) await stopDictation();
+  }
+}
+
+export async function startDictation(id: string) {
+  const st = useApp.getState();
+  if (st.voice.state !== "idle") return;
+  st.setVoice({ state: "recording", target: id, level: 0 });
+  try {
+    await api.sttStart(id);
+    cue("start");
+    armPicker();
+  } catch (e) {
+    cue("error");
+    st.setVoice({ state: "idle", target: null, level: 0 });
+    const msg = errMsg(e);
+    st.toast(msg, "error", /not installed/i.test(msg) ? { label: "Open voice settings", run: () => useApp.getState().setView("settings") } : undefined);
+  }
+}
+
+export async function toggleDictation(id: string) {
+  const v = useApp.getState().voice;
+  if (v.state === "recording") await stopDictation();
+  else if (v.state === "idle") {
+    pressedAt = 0;
+    await startDictation(id);
+  }
+}
+
+export async function cancelDictation() {
+  const st = useApp.getState();
+  if (st.voice.state !== "recording") return;
+  await api.sttCancel().catch(() => {});
+  st.setVoice({ state: "idle", target: null, level: 0 });
+  await disarmPicker();
+  if (hotkeysDirty) void syncHotkeys();
+}
+
+/** `send`: press Enter afterwards (Enter pressed while recording). */
+export async function stopDictation(send = false) {
+  const st = useApp.getState();
+  if (st.voice.state !== "recording") return;
+  // The target may have been switched while recording (1–8 / arrows).
+  const chosen = st.voice.target;
+  st.setVoice({ ...st.voice, state: "transcribing", level: 0 });
+  cue("stop");
+  void disarmPicker();
+  try {
+    const r = await api.sttStop();
+    const target = chosen && useApp.getState().sessions[chosen] ? chosen : r.target;
+    const control = r.text && useApp.getState().settings.voiceCommands !== false ? parseControl(r.text) : null;
+    if (control) {
+      const done = await runControl(control);
+      useApp.getState().toast(`🎤 Command: ${done}`, "ok");
+      return;
+    }
+    const routed = r.text ? routeSpoken(r.text, routeCandidates()) : null;
+    if (routed && routed.id !== target) {
+      await deliver(routed.id, routed.text, r.send || send);
+    } else {
+      await deliver(target, routed?.text ?? r.text, r.send || send);
+    }
+  } catch (e) {
+    useApp.getState().toast(`Dictation failed: ${errMsg(e)}`, "error");
+  } finally {
+    useApp.getState().setVoice({ state: "idle", target: null, level: 0 });
+    await disarmPicker();
+    if (hotkeysDirty) void syncHotkeys();
+  }
+}
+
+/** Type the text into the session; Enter if said ("…, absenden") or auto-send is on. */
+export async function deliver(id: string, text: string, send: boolean) {
+  const st = useApp.getState();
+  const s = st.sessions[id];
+  if (!text) {
+    st.toast("Didn't catch that — nothing was typed", "info");
+    return;
+  }
+  if (s) lastTarget = id;
+  if (!s?.runtime?.running) {
+    await navigator.clipboard?.writeText(text).catch(() => {});
+    st.toast(`"${s?.name ?? "Session"}" is not running — text copied to the clipboard`, "warn");
+    return;
+  }
+  await api.ptyWrite(id, text);
+  if (send || st.settings.voiceAutoSend === true) {
+    await new Promise((r) => setTimeout(r, 150));
+    await api.ptyWrite(id, "\r");
+  }
+  st.toast(`🎤 ${s.name}: ${text.length > 90 ? text.slice(0, 90) + "…" : text}${send || st.settings.voiceAutoSend === true ? " ⏎" : ""}`, "ok");
+}
+
+/** Wire events once: level meter, Esc to cancel, keep shortcuts in sync with sessions/settings. */
+export async function initVoice() {
+  if (listening) return;
+  listening = true;
+  await listen<{ level: number }>("stt-level", (ev) => {
+    const v = useApp.getState().voice;
+    if (v.state === "recording") useApp.getState().setVoice({ ...v, level: ev.payload.level });
+  });
+  window.addEventListener("keydown", (e) => {
+    if (e.key === "Escape" && useApp.getState().voice.state === "recording") {
+      e.preventDefault();
+      void cancelDictation();
+    }
+  }, true);
+  useApp.subscribe((st, prev) => {
+    if (st.settings !== prev.settings || st.order !== prev.order || st.sessions !== prev.sessions) void syncHotkeys();
+  });
+  await syncHotkeys(true);
+  // Load the model in the background when voice is set up, so the first command is quick.
+  const status = await api.sttStatus().catch(() => null);
+  const model = (useApp.getState().settings.voiceModel as string) || "small";
+  if (status?.serverInstalled && status.models.find((m) => m.id === model)?.installed && useApp.getState().settings.voiceEnabled !== false) {
+    void api.sttWarmup().catch(() => {});
+  }
+}

@@ -1,0 +1,49 @@
+name: Release
+
+# Push a tag like v0.1.0 to build the Windows installer and create a draft release.
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Windows installer
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: src-tauri
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: Robs AI Cockpit ${{ github.ref_name }}
+          releaseBody: |
+            See [CHANGELOG.md](https://github.com/darkcool70/robs-ai-cockpit/blob/main/CHANGELOG.md) for what changed.
+
+            **Install:** download `Robs AI Cockpit_*_x64-setup.exe` below and run it.
+            The installer is not code-signed yet — Windows SmartScreen may warn: *More info → Run anyway*.
+
+            Requires Windows 11 and at least one of the official CLIs (`claude`, `codex`) on your PATH.
+          releaseDraft: true
+          prerelease: false

@@ -1,0 +1,14 @@
+Robs AI Cockpit
+Copyright 2026 Robert Bansimer
+
+This product is licensed under the Apache License, Version 2.0 (see LICENSE).
+
+Third-party dependencies are used under their own licenses (MIT, Apache-2.0, BSD, ISC, Zlib,
+MPL-2.0, Unicode-3.0 and similar permissive licenses); see Cargo.lock and pnpm-lock.yaml.
+
+The optional voice input downloads whisper.cpp (MIT, https://github.com/ggml-org/whisper.cpp)
+and a Whisper model (MIT, https://huggingface.co/ggerganov/whisper.cpp) at the user's request;
+they are not part of this distribution.
+
+"Claude" and "Claude Code" are trademarks of Anthropic, PBC. "OpenAI" and "Codex" are trademarks
+of OpenAI. This project is not affiliated with or endorsed by either company.

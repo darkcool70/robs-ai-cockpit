@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/darkcool70/robs-ai-cockpit/security/advisories/new
+    about: Please report security problems privately, not as a public issue.
+  - name: Questions & ideas
+    url: https://github.com/darkcool70/robs-ai-cockpit/discussions
+    about: Ask questions and share ideas in Discussions.

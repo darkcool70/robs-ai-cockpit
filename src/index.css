@@ -1,0 +1,116 @@
+@import "tailwindcss";
+@import "@xterm/xterm/css/xterm.css";
+
+@theme {
+  --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --font-mono: "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", monospace;
+
+  --color-bg: #0d1014;
+  --color-panel: #11151a;
+  --color-raised: #161b21;
+  --color-hover: #1c222a;
+  --color-line: #222932;
+  --color-line-strong: #2d3540;
+  --color-fg: #d6dde6;
+  --color-muted: #8a95a3;
+  --color-faint: #5d6773;
+  --color-accent: #6ea8fe;
+  --color-ok: #56c087;
+  --color-warn: #e3b341;
+  --color-err: #f07178;
+  --color-claude: #d9825b;
+  --color-codex: #4fb897;
+  --color-term: #0b0e12;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+::selection {
+  background: #2b3a52;
+}
+
+/* Light theme (Settings → Appearance): same tokens, light values. */
+:root[data-theme="light"] {
+  --color-bg: #f5f6f8;
+  --color-panel: #ffffff;
+  --color-raised: #f0f2f5;
+  --color-hover: #e7eaef;
+  --color-line: #e0e4ea;
+  --color-line-strong: #cbd2db;
+  --color-fg: #1b222b;
+  --color-muted: #566170;
+  --color-faint: #8791a0;
+  --color-accent: #2d6bd4;
+  --color-ok: #1b8f55;
+  --color-warn: #a97a06;
+  --color-err: #cc3f48;
+  --color-claude: #c0633a;
+  --color-codex: #1f8f6c;
+  --color-term: #fbfcfd;
+}
+:root[data-theme="light"] ::selection {
+  background: #cfe0fb;
+}
+
+button {
+  cursor: default;
+}
+
+:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.xterm-host {
+  position: absolute;
+  inset: 0;
+  padding: 4px 0 0 6px;
+  background: var(--color-term);
+}
+
+.xterm .xterm-viewport {
+  background-color: var(--color-term) !important;
+}
+
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+input,
+select,
+textarea {
+  font: inherit;
+  color: inherit;
+}
+
+[data-separator] {
+  background: var(--color-line);
+}
+[data-separator]:hover,
+[data-separator][data-active] {
+  background: var(--color-accent);
+}
+
+/* Heads-up notification window: transparent around the cards. */
+html.hud,
+html.hud body,
+html.hud #root {
+  background: transparent;
+  overflow: hidden;
+}
