@@ -357,6 +357,8 @@ pub fn account_add(state: State<AppState>, input: NewAccount) -> AppResult<Accou
         created_at: now_iso(),
         sort: 0,
         command: if provider == Provider::Custom { command } else { None },
+        auth_email: None,
+        auth_org: None,
     };
     if provider == Provider::Codex && paths::codex_home_too_long(&dir) {
         if input.mode == "managed" {
@@ -437,7 +439,26 @@ pub fn model_catalog(state: State<AppState>, account_id: String) -> AppResult<Ve
     })
 }
 
-/// Interpret the official CLI's own status output. We keep only non-identifying fields.
+/// Login email and organisation from `claude auth status --json` (only when logged in). Shown
+/// on the Accounts page so profiles with different logins can be told apart; stored locally only.
+pub fn claude_identity(stdout: &str) -> Option<(String, Option<String>)> {
+    let v: Value = serde_json::from_str(stdout.trim()).ok()?;
+    if !v.get("loggedIn").and_then(|x| x.as_bool()).unwrap_or(false) {
+        return None;
+    }
+    let email = v.get("email").and_then(|x| x.as_str()).map(str::trim).filter(|e| e.contains('@'))?;
+    // Personal plans get a default organisation named after the email; that adds nothing.
+    let org = v
+        .get("orgName")
+        .and_then(|x| x.as_str())
+        .map(str::trim)
+        .filter(|o| !o.is_empty() && !o.to_lowercase().starts_with(&email.to_lowercase()))
+        .map(str::to_string);
+    Some((email.chars().take(200).collect(), org))
+}
+
+/// Interpret the official CLI's own status output. The status line keeps only non-identifying
+/// fields; the login identity is read separately by `claude_identity`.
 pub fn interpret_auth(provider: Provider, code: Option<i32>, stdout: &str, stderr: &str) -> (String, Option<String>) {
     match provider {
         Provider::Claude => match serde_json::from_str::<Value>(stdout.trim()) {
@@ -496,15 +517,25 @@ pub async fn account_check_auth(state: State<'_, AppState>, id: String, force: O
     let res = tauri::async_runtime::spawn_blocking(move || cli::run_spec(&spec, 20))
         .await
         .map_err(|e| AppError::other(e.to_string()))?;
-    let (status, detail) = match res {
-        Ok(c) => interpret_auth(provider, c.code, &c.stdout, &c.stderr),
-        Err(e) => ("error".into(), Some(e.to_string())),
+    let (status, detail, identity) = match res {
+        Ok(c) => {
+            let (s, d) = interpret_auth(provider, c.code, &c.stdout, &c.stderr);
+            let id = if provider == Provider::Claude { claude_identity(&c.stdout) } else { None };
+            (s, d, id)
+        }
+        Err(e) => ("error".into(), Some(e.to_string()), None),
     };
     let conn = state.db.0.lock();
     // A CLI-reported expiry beats "credentials present"; it is cleared by a login flow or an
     // explicit re-check (force).
     if !(acc.auth_status == "expired" && status == "connected" && !force.unwrap_or(false)) {
         store::set_auth(&conn, &id, &status, detail.as_deref())?;
+    }
+    // Keep the last known identity through transient errors; forget it on logout.
+    if let Some((email, org)) = &identity {
+        store::set_identity(&conn, &id, Some(email), org.as_deref())?;
+    } else if status == "logged-out" {
+        store::set_identity(&conn, &id, None, None)?;
     }
     store::get_account(&conn, &id)
 }
@@ -2158,5 +2189,16 @@ mod tests {
         assert_eq!(interpret_auth(Provider::Codex, Some(0), "Logged in using ChatGPT", "").0, "connected");
         assert_eq!(interpret_auth(Provider::Codex, Some(1), "Not logged in", "WARNING: x").0, "logged-out");
         assert_eq!(interpret_auth(Provider::Codex, Some(0), "Logged in using an API key - sk-***", "").0, "connected-api");
+    }
+
+    #[test]
+    fn claude_identity_only_when_logged_in() {
+        let out = r#"{"loggedIn":true,"authMethod":"claude.ai","email":"a@example.com","orgId":"o1","orgName":"A's Org","subscriptionType":"max"}"#;
+        assert_eq!(claude_identity(out), Some(("a@example.com".into(), Some("A's Org".into()))));
+        let personal = r#"{"loggedIn":true,"email":"a@example.com","orgName":"a@example.com's Organization"}"#;
+        assert_eq!(claude_identity(personal), Some(("a@example.com".into(), None)), "default org is noise");
+        assert_eq!(claude_identity(r#"{"loggedIn":false,"email":"a@example.com"}"#), None);
+        assert_eq!(claude_identity(r#"{"loggedIn":true,"email":""}"#), None);
+        assert_eq!(claude_identity("not json"), None);
     }
 }

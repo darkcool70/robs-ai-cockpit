@@ -25,6 +25,12 @@ pub struct Account {
     /// Provider "custom": the command line that starts the tool (e.g. `gemini`, `ollama run qwen3`).
     #[serde(default)]
     pub command: Option<String>,
+    /// Login email / organisation as reported by the CLI's status command (Claude only), so
+    /// profiles logged in with different accounts can be told apart.
+    #[serde(default)]
+    pub auth_email: Option<String>,
+    #[serde(default)]
+    pub auth_org: Option<String>,
 }
 
 fn account_from(r: &Row) -> rusqlite::Result<Account> {
@@ -42,6 +48,8 @@ fn account_from(r: &Row) -> rusqlite::Result<Account> {
         created_at: r.get("created_at")?,
         sort: r.get("sort")?,
         command: r.get("command")?,
+        auth_email: r.get("auth_email")?,
+        auth_org: r.get("auth_org")?,
     })
 }
 
@@ -82,6 +90,12 @@ pub fn set_auth(c: &Connection, id: &str, status: &str, detail: Option<&str>) ->
         "UPDATE accounts SET auth_status=?2, auth_detail=?3, auth_checked_at=?4 WHERE id=?1",
         params![id, status, detail, now_iso()],
     )?;
+    Ok(())
+}
+
+/// Store (or clear) the login identity of a profile.
+pub fn set_identity(c: &Connection, id: &str, email: Option<&str>, org: Option<&str>) -> AppResult<()> {
+    c.execute("UPDATE accounts SET auth_email=?2, auth_org=?3 WHERE id=?1", params![id, email, org])?;
     Ok(())
 }
 

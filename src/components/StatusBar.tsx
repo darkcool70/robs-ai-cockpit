@@ -29,7 +29,7 @@ export function StatusBar() {
           const week = q.find((w) => w.window === "seven_day");
           const limited = Object.values(sessions).some((s) => s.accountId === a.id && (s.runtime?.status ?? s.status) === "rate-limited");
           return (
-            <span key={a.id} className="mr-3 flex items-center gap-1.5" title={`${a.name}: ${a.authDetail ?? a.authStatus}`}>
+            <span key={a.id} className="mr-3 flex items-center gap-1.5" title={`${a.name}${a.authEmail ? ` (${a.authEmail})` : ""}: ${a.authDetail ?? a.authStatus}`}>
               <span className={cx("h-1.5 w-1.5 rounded-full", AUTH_DOT[a.authStatus] ?? "bg-faint")} />
               <span className="text-fg/90">{a.name}</span>
               {five && (

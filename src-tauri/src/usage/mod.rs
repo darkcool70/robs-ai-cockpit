@@ -297,6 +297,8 @@ mod tests {
             created_at: "t".into(),
             sort: 0,
             command: None,
+            auth_email: None,
+            auth_org: None,
         }
     }
 

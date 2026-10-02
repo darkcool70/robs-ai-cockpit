@@ -6,6 +6,11 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- Accounts show which login (email and organisation) each Claude profile uses: on the
+  Accounts page, in the account picker of "New session", in the overview and the status bar.
+  Taken from `claude auth status`; the Codex CLI does not report it.
+
 ## [0.1.0] - 2026-09-30
 
 First public release.

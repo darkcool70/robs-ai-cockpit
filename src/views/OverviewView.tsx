@@ -402,7 +402,7 @@ function QuotaStrip({ history, today }: { history: Record<string, QuotaWindow[]>
                 <div className="grid grid-cols-[110px_1fr] gap-x-2 text-muted">
                   <span>Tokens today</span><span className="text-fg tabular">{tokens.toLocaleString()}</span>
                   <span>Running now</span><span className="truncate text-fg">{running.length ? running.map((s) => s.name).join(", ") : "none"}</span>
-                  <span>Login</span><span className="text-fg">{a.authDetail ?? a.authStatus}</span>
+                  <span>Login</span><span className="truncate text-fg">{a.authDetail ?? a.authStatus}{a.authEmail ? ` · ${a.authEmail}` : ""}</span>
                 </div>
               </div>
             )}

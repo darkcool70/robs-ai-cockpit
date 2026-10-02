@@ -79,7 +79,7 @@ export function AccountsView() {
           <div>
             <h1 className="text-[16px] font-semibold">AI accounts</h1>
             <p className="text-[12px] text-muted">
-              Logins are handled by the official CLIs. The cockpit stores only a nickname and the config directory — never passwords or tokens.
+              Logins are handled by the official CLIs. The cockpit stores only a nickname, the config directory and the login email the CLI reports — never passwords or tokens.
             </p>
           </div>
         </div>
@@ -202,7 +202,10 @@ function AccountCard({ account: a, quota, tokens }: { account: Account; quota: Q
     <Card className="flex flex-col">
       <div className="flex items-center gap-2 border-b border-line px-3 py-2">
         <span className="h-2.5 w-2.5 rounded-full" style={{ background: a.color ?? (a.provider === "claude" ? "var(--color-claude)" : "var(--color-codex)") }} />
-        <span className="text-[13.5px] font-semibold">{a.name}</span>
+        <span className="min-w-0">
+          <span className="block text-[13.5px] font-semibold">{a.name}</span>
+          {a.authEmail && <span className="block truncate text-[11px] text-muted" title={a.authOrg ?? undefined}>{a.authEmail}</span>}
+        </span>
         <ProviderMark provider={a.provider} />
         <Badge tone={auth.tone} title={a.authDetail ?? ""}>● {auth.label}</Badge>
         <div className="ml-auto flex">
@@ -242,6 +245,20 @@ function AccountCard({ account: a, quota, tokens }: { account: Account; quota: Q
         <dl className="grid grid-cols-[110px_1fr] gap-y-1 text-[11.5px]">
           <dt className="text-faint">Tokens (all time)</dt><dd className="tabular">{compact(tokens)} <span className="text-faint">measured</span></dd>
           <dt className="text-faint">Login</dt><dd className="truncate">{a.authDetail ?? "not checked"}</dd>
+          {a.provider !== "custom" && (
+            <>
+              <dt className="text-faint">Signed in as</dt>
+              <dd className="truncate" title={a.authOrg ?? undefined}>
+                {a.authEmail ? (
+                  <>{a.authEmail}{a.authOrg && <span className="text-faint"> · {a.authOrg}</span>}</>
+                ) : (
+                  <span className="text-faint">
+                    {a.provider === "codex" ? "not reported by the Codex CLI" : a.authStatus === "logged-out" ? "not logged in" : "re-check the login to show it"}
+                  </span>
+                )}
+              </dd>
+            </>
+          )}
           <dt className="text-faint">Config dir</dt><dd className="truncate font-mono text-[10.5px]" title={a.configDir}>{a.configDir}</dd>
           <dt className="text-faint">Profile</dt><dd>{a.managed ? "Isolated cockpit profile" : "Existing CLI profile (shared with external terminals)"}</dd>
           <dt className="text-faint">Last used</dt><dd>{ago(a.lastUsedAt)}</dd>

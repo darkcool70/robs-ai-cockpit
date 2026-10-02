@@ -77,6 +77,10 @@ export interface Account {
   /** Provider "custom": command line that starts the tool. */
   command?: string | null;
   sort: number;
+  /** Login email reported by the CLI's status command (Claude). */
+  authEmail?: string | null;
+  /** Organisation of that login (Claude). */
+  authOrg?: string | null;
 }
 
 export interface ModelInfo {

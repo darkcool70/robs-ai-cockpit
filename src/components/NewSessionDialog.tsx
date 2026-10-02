@@ -209,7 +209,10 @@ export function NewSessionDialog() {
                           )}
                         >
                           <ProviderMark provider={a.provider} />
-                          <span className="flex-1 truncate">{a.name}</span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block truncate">{a.name}</span>
+                            {a.authEmail && <span className="block truncate text-[10.5px] text-faint">{a.authEmail}</span>}
+                          </span>
                           {best[a.provider]?.id === a.id && <span className="shrink-0 rounded bg-ok/15 px-1 text-[10px] text-ok" title="Most quota left of this provider — recommended for new work">most left</span>}
                           {usedOf(a.id) != null && <span className={cx("shrink-0 text-[10.5px] tabular", usedOf(a.id)! >= 90 ? "text-err" : usedOf(a.id)! >= 70 ? "text-warn" : "text-faint")} title="Highest usage of the current quota windows">{usedOf(a.id)!.toFixed(0)}%</span>}
                           <span

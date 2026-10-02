@@ -252,6 +252,11 @@ pub const MIGRATIONS: &[&str] = &[
       SELECT 'claude-haiku-4' ,  1.0,  5.0, 0.10,  1.25
     ) WHERE NOT EXISTS (SELECT 1 FROM prices);
     "#,
+    // login identity reported by the CLI's own status command (Claude: email + organisation)
+    r#"
+    ALTER TABLE accounts ADD COLUMN auth_email TEXT;
+    ALTER TABLE accounts ADD COLUMN auth_org TEXT;
+    "#,
 ];
 
 const WIDEN_PROVIDER_CHECK: &str = "@@widen_provider_check";

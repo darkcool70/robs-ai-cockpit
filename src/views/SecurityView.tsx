@@ -55,7 +55,7 @@ export function SecurityView() {
             <dd />
           </dl>
           <p className="mt-2 text-[11.5px] text-faint">
-            The database holds project paths, account nicknames + config directories, session metadata, numeric token counts and quota
+            The database holds project paths, account nicknames + config directories (+ the login email Claude Code reports), session metadata, numeric token counts and quota
             percentages. It never holds prompts, responses, source code, passwords or OAuth tokens.
           </p>
         </Card>
