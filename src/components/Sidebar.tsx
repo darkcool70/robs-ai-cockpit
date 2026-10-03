@@ -69,6 +69,9 @@ export function Sidebar() {
             {v === "overview" && waiting > 0 && (
               <span className="ml-auto rounded-full bg-ok/20 px-1.5 text-[10.5px] font-semibold text-ok" title="Agents waiting for you">{waiting}</span>
             )}
+            {v === "assistants" && !__PRO__ && (
+              <span className="ml-auto rounded-full bg-accent/15 px-1.5 text-[10px] font-semibold text-accent" title="Part of Robs AI Cockpit Pro">PRO</span>
+            )}
             {v === "assistants" && (assistantsNeedYou > 0 || assistantsBusy > 0) && (
               <span
                 className={cx("ml-auto rounded-full px-1.5 text-[10.5px] font-semibold", assistantsNeedYou > 0 ? "bg-warn/20 text-warn" : "bg-accent/20 text-accent")}

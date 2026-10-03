@@ -1,7 +1,7 @@
 {
   "name": "ai-cockpit",
   "private": true,
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Local-first desktop cockpit for running several official Claude Code and Codex CLI sessions side by side",
   "license": "Apache-2.0",
   "author": "Robert Bansimer",

@@ -27,8 +27,14 @@ export function AssistantsView() {
           <p><Download size={14} className="mb-1 text-accent" /> Chat room with live terminal and one-click permission answers</p>
         </Card>
         <div className="flex flex-col items-center gap-2">
-          <Button variant="primary" onClick={() => void api.openProjectPage("pro")}><Download size={13} /> Learn more about Pro</Button>
-          <p className="text-[11.5px] text-faint">This version is the free open-source edition, which does not include Pro. Everything else in the cockpit is yours to use.</p>
+          <div className="flex gap-2">
+            <Button variant="primary" onClick={() => void api.openProjectPage("download")}><Download size={13} /> Get the official app: 7 days free</Button>
+            <Button onClick={() => void api.openProjectPage("pro")}><Sparkles size={13} /> Learn more about Pro</Button>
+          </div>
+          <p className="max-w-[560px] text-center text-[11.5px] text-faint">
+            This build is the free open-source edition, which does not include Pro. The official installer contains Pro with a 7-day
+            trial, no account or card needed. Everything else in the cockpit stays free.
+          </p>
         </div>
       </div>
     </div>

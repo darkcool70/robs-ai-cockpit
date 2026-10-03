@@ -6,6 +6,15 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-10-04
+
+### Added
+- The official installer is the **Pro edition**: assistants and goals are free for 7 days from
+  the first start, then a monthly or yearly subscription (Settings → Pro). The license is
+  checked with Ed25519-signed tokens; see docs/PRO.md.
+- The free open-source build marks Assistants as Pro in the sidebar and links to the
+  official download.
+
 ## [0.2.0] - 2026-10-03
 
 ### Added
