@@ -1,6 +1,6 @@
 [package]
 name = "ai-cockpit"
-version = "0.1.0"
+version = "0.2.0"
 description = "Local-first control plane for official Claude Code and Codex CLI sessions"
 authors = ["Robert Bansimer"]
 edition = "2021"

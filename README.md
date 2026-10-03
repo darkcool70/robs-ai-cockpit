@@ -212,11 +212,11 @@ at the right moment. You can see it in the top-left pane above: *rate limited ·
 
 ## Robs AI Cockpit Pro
 
-Assistants and goals are **Pro** features of the official download:
+Assistants and goals are **Pro** features. **Coming soon:**
 * **7 days free**, no account and no card needed.
 * After that, a **monthly or yearly subscription**: buy it in the app (Settings → Pro) and
   paste the license key.
-* The rest of the cockpit stays free and open source.
+* The rest of the cockpit stays free and open source; the current download is the free edition.
 
 Building from source gives the open-source edition without Pro. How the open-core split works:
 [docs/PRO.md](docs/PRO.md).

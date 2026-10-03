@@ -14,19 +14,24 @@ jobs:
     name: Build Windows installer
     runs-on: windows-latest
     env:
-      # The official download is the Pro edition: its private code is checked out into ./pro.
+      # With the PRO_REPO_TOKEN secret the private Pro code is checked out into ./pro and the
+      # installer is the Pro edition; without it, the free open-source edition is built.
       HAS_PRO_TOKEN: ${{ secrets.PRO_REPO_TOKEN != '' }}
       ROBS_LICENSE_URL: ${{ vars.ROBS_LICENSE_URL }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Require the Pro setup
-        if: env.HAS_PRO_TOKEN != 'true' || env.ROBS_LICENSE_URL == ''
+      - name: Pro needs its license server
+        if: env.HAS_PRO_TOKEN == 'true' && env.ROBS_LICENSE_URL == ''
         run: |
-          echo "::error::Official releases include Pro. Set the PRO_REPO_TOKEN secret and the ROBS_LICENSE_URL variable (docs/PRO.md)."
+          echo "::error::PRO_REPO_TOKEN is set but the ROBS_LICENSE_URL variable is missing (docs/PRO.md)."
           exit 1
 
+      - name: Edition
+        run: echo "Building the ${{ env.HAS_PRO_TOKEN == 'true' && 'Pro' || 'free open-source' }} edition"
+
       - name: Check out Robs AI Cockpit Pro (private)
+        if: env.HAS_PRO_TOKEN == 'true'
         uses: actions/checkout@v4
         with:
           repository: darkcool70/robs-ai-cockpit-pro
@@ -58,10 +63,10 @@ jobs:
           releaseBody: |
             See [CHANGELOG.md](https://github.com/darkcool70/robs-ai-cockpit/blob/main/CHANGELOG.md) for what changed.
 
-            **Install:** download `Robs AI Cockpit_*_x64-setup.exe` below and run it. Assistants and goals (Pro) are free for 7 days.
+            **Install:** download `Robs AI Cockpit_*_x64-setup.exe` below and run it.
             The installer is not code-signed yet — Windows SmartScreen may warn: *More info → Run anyway*.
 
             Requires Windows 11 and at least one of the official CLIs (`claude`, `codex`) on your PATH.
           releaseDraft: true
           prerelease: false
-          args: --features pro
+          args: ${{ env.HAS_PRO_TOKEN == 'true' && '--features pro' || '' }}
