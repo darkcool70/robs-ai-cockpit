@@ -448,6 +448,38 @@ pub fn build_status_command(binary: &str, account: &AccountEnv) -> LaunchSpec {
     }
 }
 
+/// One-shot, non-interactive call of a small model (goal supervisor). The prompt goes in via
+/// stdin. Claude prints the answer; Codex writes its last message to `out_file`. Neither may
+/// touch files: Claude gets no tools and one turn, Codex a read-only sandbox.
+pub fn build_supervisor_command(binary: &str, account: &AccountEnv, model: &str, out_file: &Path, cwd: &Path) -> LaunchSpec {
+    let args: Vec<String> = match account.provider {
+        Provider::Claude => [
+            "-p", "--model", model, "--max-turns", "1", "--output-format", "text", "--no-session-persistence",
+            "--disallowedTools", "Bash,Edit,MultiEdit,Write,NotebookEdit,WebFetch,WebSearch,Task",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect(),
+        _ => vec![
+            "exec".into(),
+            "--skip-git-repo-check".into(),
+            "--sandbox".into(),
+            "read-only".into(),
+            "--ephemeral".into(),
+            "-m".into(),
+            model.into(),
+            "-c".into(),
+            "model_reasoning_effort=low".into(),
+            "-o".into(),
+            out_file.to_string_lossy().into_owned(),
+            "-".into(),
+        ],
+    };
+    let (program, args) = wrap_program(binary, args);
+    let (env_set, env_remove) = base_env(account);
+    LaunchSpec { program, args, cwd: cwd.to_string_lossy().into_owned(), env_set, env_remove }
+}
+
 // ---------------------------------------------------------------------------
 // Non-interactive execution with timeout
 // ---------------------------------------------------------------------------
@@ -468,6 +500,19 @@ pub fn run_spec(spec: &LaunchSpec, timeout_secs: u64) -> std::io::Result<Capture
         cmd.env(k, v);
     }
     spawn_with_timeout(cmd, timeout_secs)
+}
+
+/// Like `run_spec`, with `input` written to the process's stdin.
+pub fn run_spec_input(spec: &LaunchSpec, input: &str, timeout_secs: u64) -> std::io::Result<Captured> {
+    let mut cmd = Command::new(&spec.program);
+    cmd.args(&spec.args).current_dir(&spec.cwd);
+    for k in &spec.env_remove {
+        cmd.env_remove(k);
+    }
+    for (k, v) in &spec.env_set {
+        cmd.env(k, v);
+    }
+    spawn_inner(cmd, Some(input.as_bytes().to_vec()), timeout_secs)
 }
 
 pub fn run_capture(
@@ -492,8 +537,12 @@ pub fn run_capture(
     spawn_with_timeout(cmd, timeout_secs)
 }
 
-fn spawn_with_timeout(mut cmd: Command, timeout_secs: u64) -> std::io::Result<Captured> {
-    cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+fn spawn_with_timeout(cmd: Command, timeout_secs: u64) -> std::io::Result<Captured> {
+    spawn_inner(cmd, None, timeout_secs)
+}
+
+fn spawn_inner(mut cmd: Command, input: Option<Vec<u8>>, timeout_secs: u64) -> std::io::Result<Captured> {
+    cmd.stdin(if input.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::piped());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -501,6 +550,12 @@ fn spawn_with_timeout(mut cmd: Command, timeout_secs: u64) -> std::io::Result<Ca
         cmd.creation_flags(CREATE_NO_WINDOW);
     }
     let mut child = cmd.spawn()?;
+    if let (Some(data), Some(mut stdin)) = (input, child.stdin.take()) {
+        // Written from a thread so a full pipe never blocks the timeout loop; dropping closes it.
+        std::thread::spawn(move || {
+            let _ = std::io::Write::write_all(&mut stdin, &data);
+        });
+    }
     let mut out = child.stdout.take();
     let mut err = child.stderr.take();
     let t_out = std::thread::spawn(move || {

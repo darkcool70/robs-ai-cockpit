@@ -175,7 +175,7 @@ fn program_for(state: &AppState, p: Provider, acc: &Account) -> AppResult<(Strin
     Ok((bin, rest.to_vec()))
 }
 
-fn binary_for(state: &AppState, p: Provider) -> AppResult<String> {
+pub(crate) fn binary_for(state: &AppState, p: Provider) -> AppResult<String> {
     let cached = state.clis.lock().iter().find(|c| c.provider == p.as_str()).and_then(|c| c.path.clone());
     let path = match cached {
         Some(p) => Some(p),
@@ -387,7 +387,7 @@ pub fn account_update(state: State<AppState>, id: String, name: String, color: O
 #[derive(Serialize, Debug, PartialEq)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfo {
-    id: String,
+    pub id: String,
     label: String,
     efforts: Vec<String>,
 }
@@ -577,26 +577,26 @@ pub fn account_remove(state: State<AppState>, id: String, delete_files: bool) ->
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NewSession {
-    account_id: String,
-    project_id: Option<String>,
-    cwd: Option<String>,
-    name: Option<String>,
-    model: Option<String>,
-    extra_args: Option<Vec<String>>,
-    resume_provider_session_id: Option<String>,
-    options: Option<SessionOptions>,
-    auto_continue: Option<bool>,
+    pub(crate) account_id: String,
+    pub(crate) project_id: Option<String>,
+    pub(crate) cwd: Option<String>,
+    pub(crate) name: Option<String>,
+    pub(crate) model: Option<String>,
+    pub(crate) extra_args: Option<Vec<String>>,
+    pub(crate) resume_provider_session_id: Option<String>,
+    pub(crate) options: Option<SessionOptions>,
+    pub(crate) auto_continue: Option<bool>,
 }
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SessionView {
     #[serde(flatten)]
-    session: Session,
+    pub(crate) session: Session,
     runtime: Option<RuntimeView>,
 }
 
-fn view(state: &AppState, s: Session) -> SessionView {
+pub(crate) fn view(state: &AppState, s: Session) -> SessionView {
     let runtime = state.runtimes.lock().get(&s.id).map(|r| r.view.clone());
     SessionView { session: s, runtime }
 }
@@ -1819,9 +1819,11 @@ pub struct AutomationInput {
     delay_sec: i64,
     stop_phrase: Option<String>,
     start: bool,
+    #[serde(default)]
+    goal: Option<crate::automation::GoalConfig>,
 }
 
-fn attach_automation(state: &AppState, a: &crate::automation::Automation) {
+pub(crate) fn attach_automation(state: &AppState, a: &crate::automation::Automation) {
     if let Some(rt) = state.runtimes.lock().get_mut(&a.session_id) {
         rt.view.automation = Some(crate::monitor::AutomationView::of(a));
         if a.state == "running" {
@@ -1862,9 +1864,33 @@ pub fn automation_save(app: AppHandle, state: State<AppState>, input: Automation
         note: None,
         created_at: existing.as_ref().map(|e| e.created_at.clone()).unwrap_or_else(|| now.clone()),
         updated_at: now,
+        goal: input.goal.map(|mut g| {
+            g.goal = g.goal.trim().to_string();
+            g.criteria = g.criteria.map(|c| c.trim().to_string()).filter(|c| !c.is_empty());
+            g.supervisor_model = g.supervisor_model.map(|m| m.trim().to_string()).filter(|m| !m.is_empty());
+            g.supervisor_account_id = g.supervisor_account_id.filter(|m| !m.is_empty());
+            g
+        }),
+        progress: None,
+        log: vec![],
+        pending: None,
     };
     a.validate().map_err(AppError::invalid)?;
-    if let Some(e) = &existing {
+    if a.mode == "goal" {
+        #[cfg(not(feature = "pro"))]
+        return Err(AppError::invalid(crate::PRO_NOTE));
+        #[cfg(feature = "pro")]
+        crate::pro::license::require(&c)?;
+    }
+    if let Some(e) = existing.as_ref().filter(|e| e.mode == "goal" && a.mode == "goal") {
+        // Editing a goal keeps its history; the supervisor uses the new text from now on.
+        a.step = e.step;
+        a.last_sent_at = e.last_sent_at;
+        a.progress = e.progress;
+        a.log = e.log.clone();
+        a.pending = e.pending.clone();
+    }
+    if let Some(e) = existing.as_ref().filter(|e| e.mode != "goal" && a.mode != "goal") {
         // Editing keeps progress as long as the position still exists.
         if (e.step as usize) < a.prompts.len() {
             a.step = e.step;
@@ -1894,9 +1920,7 @@ pub fn automation_control(app: AppHandle, state: State<AppState>, id: String, ac
     match action.as_str() {
         "start" => {
             if a.state == "done" || a.state == "stopped" {
-                a.step = 0;
-                a.iteration = 0;
-                a.last_sent_at = None;
+                a.rewind();
             }
             a.state = "running".into();
             a.note = Some("Starting…".into());
@@ -1911,9 +1935,7 @@ pub fn automation_control(app: AppHandle, state: State<AppState>, id: String, ac
             a.note = Some("Stopped".into());
         }
         "reset" => {
-            a.step = 0;
-            a.iteration = 0;
-            a.last_sent_at = None;
+            a.rewind();
             a.note = None;
             if a.state != "running" {
                 a.state = "paused".into();
@@ -1942,6 +1964,18 @@ pub fn automation_delete(app: AppHandle, state: State<AppState>, id: String) -> 
     }
     let _ = app.emit("automation-changed", json!({ "id": id, "deleted": true }));
     Ok(())
+}
+
+/// Open one of the project's own pages in the browser (fixed list, never an arbitrary URL).
+#[tauri::command(async)]
+pub fn open_project_page(app: AppHandle, page: String) -> AppResult<()> {
+    const REPO: &str = "https://github.com/darkcool70/robs-ai-cockpit";
+    let url = match page.as_str() {
+        "download" => format!("{REPO}/releases/latest"),
+        "pro" => format!("{REPO}#robs-ai-cockpit-pro"),
+        _ => REPO.to_string(),
+    };
+    app.opener().open_url(url, None::<&str>).map_err(|e| AppError::other(e.to_string()))
 }
 
 #[tauri::command(async)]

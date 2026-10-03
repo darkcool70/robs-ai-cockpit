@@ -24,6 +24,7 @@ import { SecurityView } from "./views/SecurityView";
 import { SettingsView } from "./views/SettingsView";
 import { OverviewView } from "./views/OverviewView";
 import { LoopsView } from "./views/LoopsView";
+import { AssistantsView } from "@pro/AssistantsView";
 import { TasksView } from "./views/TasksView";
 import { ReviewView } from "./views/ReviewView";
 import { PinsView } from "./views/PinsView";
@@ -148,6 +149,7 @@ export default function App() {
               <Workspace />
             </div>
             {view === "overview" && <OverviewView />}
+            {view === "assistants" && <AssistantsView />}
             {view === "tasks" && <TasksView />}
             {view === "review" && <ReviewView />}
             {view === "pins" && <PinsView />}

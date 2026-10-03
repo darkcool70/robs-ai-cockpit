@@ -11,6 +11,8 @@ import { autonomyLabel } from "../lib/models";
 import { resetLabel } from "../lib/format";
 import { sessionDrag } from "../lib/drag";
 import { TerminalView } from "./TerminalView";
+import { AssistantAvatar } from "./Avatar";
+import { assistantOf, moodOf } from "../lib/assistants";
 import * as terms from "../lib/terminals";
 import { Badge, Button, cx, IconButton, Kbd, ProviderMark, StatusDot } from "./ui";
 import { Inspector } from "./Inspector";
@@ -428,6 +430,7 @@ function PaneHeader({ index, id, onHide }: { index: number; id: string; onHide: 
   const launching = useApp((st) => !!st.launching[id]);
   const s = useApp((st) => st.sessions[id]);
   const acc = useApp((st) => st.accounts.find((a) => a.id === s?.accountId));
+  const asst = useApp((st) => assistantOf(st.assistants, id));
   const test = useApp((st) => st.testResults[id]);
   const project = useApp((st) => st.projects.find((p) => p.id === s?.projectId));
   const { stopSession, restartSession, duplicateSession, renameSession, closeSession } = useApp.getState();
@@ -451,7 +454,13 @@ function PaneHeader({ index, id, onHide }: { index: number; id: string; onHide: 
         <GripVertical size={12} />
         <span className="font-mono text-[10px]">{index + 1}</span>
       </span>
-      <ProviderMark provider={s.provider} />
+      {asst ? (
+        <button title={`Open ${asst.name}'s room`} onClick={() => useApp.getState().openAssistant(asst.id)}>
+          <AssistantAvatar avatar={asst.avatar} color={asst.color} mood={moodOf(s)} size={20} />
+        </button>
+      ) : (
+        <ProviderMark provider={s.provider} />
+      )}
       {editing ? (
         <input
           autoFocus

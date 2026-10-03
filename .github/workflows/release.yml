@@ -13,8 +13,25 @@ jobs:
   build:
     name: Build Windows installer
     runs-on: windows-latest
+    env:
+      # The official download is the Pro edition: its private code is checked out into ./pro.
+      HAS_PRO_TOKEN: ${{ secrets.PRO_REPO_TOKEN != '' }}
+      ROBS_LICENSE_URL: ${{ vars.ROBS_LICENSE_URL }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Require the Pro setup
+        if: env.HAS_PRO_TOKEN != 'true' || env.ROBS_LICENSE_URL == ''
+        run: |
+          echo "::error::Official releases include Pro. Set the PRO_REPO_TOKEN secret and the ROBS_LICENSE_URL variable (docs/PRO.md)."
+          exit 1
+
+      - name: Check out Robs AI Cockpit Pro (private)
+        uses: actions/checkout@v4
+        with:
+          repository: darkcool70/robs-ai-cockpit-pro
+          token: ${{ secrets.PRO_REPO_TOKEN }}
+          path: pro
 
       - uses: pnpm/action-setup@v4
 
@@ -41,9 +58,10 @@ jobs:
           releaseBody: |
             See [CHANGELOG.md](https://github.com/darkcool70/robs-ai-cockpit/blob/main/CHANGELOG.md) for what changed.
 
-            **Install:** download `Robs AI Cockpit_*_x64-setup.exe` below and run it.
+            **Install:** download `Robs AI Cockpit_*_x64-setup.exe` below and run it. Assistants and goals (Pro) are free for 7 days.
             The installer is not code-signed yet — Windows SmartScreen may warn: *More info → Run anyway*.
 
             Requires Windows 11 and at least one of the official CLIs (`claude`, `codex`) on your PATH.
           releaseDraft: true
           prerelease: false
+          args: --features pro

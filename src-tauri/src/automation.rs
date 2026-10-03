@@ -4,6 +4,9 @@
 //! * queue — every prompt once, in order.
 //! * loop  — the prompt list again and again (`repeat` rounds, 0 = until stopped), optionally
 //!   until the agent's answer contains a stop phrase (e.g. "ALL DONE").
+//! * goal  — a goal instead of fixed prompts: after every answer a small supervisor model
+//!   (see `goal.rs`) judges the progress and writes the next prompt, until the goal is reached,
+//!   the supervisor needs the user, or `repeat` rounds are used up (0 = no limit).
 //!
 //! The decision logic is pure (`decide`) and unit tested; the monitor applies it every tick.
 
@@ -34,6 +37,44 @@ pub struct Automation {
     pub note: Option<String>,
     pub created_at: String,
     pub updated_at: String,
+    /// Mode "goal": what to achieve and who supervises.
+    #[serde(default)]
+    pub goal: Option<GoalConfig>,
+    /// Mode "goal": the supervisor's latest estimate, 0–100.
+    #[serde(default)]
+    pub progress: Option<i64>,
+    /// Mode "goal": every supervisor verdict, oldest first.
+    #[serde(default)]
+    pub log: Vec<GoalStep>,
+    /// Mode "goal": the next prompt, written by the supervisor, not sent yet.
+    #[serde(default)]
+    pub pending: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GoalConfig {
+    pub goal: String,
+    /// When the goal counts as reached (optional; else the supervisor's judgement).
+    pub criteria: Option<String>,
+    /// Account that runs the supervisor (default: the session's own account).
+    pub supervisor_account_id: Option<String>,
+    /// Supervisor model (default: a small one, e.g. Claude Haiku).
+    pub supervisor_model: Option<String>,
+    /// Put in front of the first prompt (assistants on CLIs without a system-prompt flag).
+    pub preamble: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", default)]
+pub struct GoalStep {
+    pub at: i64,
+    /// continue | done | blocked | error
+    pub status: String,
+    pub progress: i64,
+    pub summary: String,
+    pub prompt: Option<String>,
+    pub question: Option<String>,
 }
 
 impl Automation {
@@ -41,10 +82,17 @@ impl Automation {
         if self.name.trim().is_empty() {
             return Err("Give the loop a name".into());
         }
-        if !matches!(self.mode.as_str(), "queue" | "loop") {
-            return Err("Mode must be queue or loop".into());
+        if !matches!(self.mode.as_str(), "queue" | "loop" | "goal") {
+            return Err("Mode must be queue, loop or goal".into());
         }
-        if self.prompts.iter().all(|p| p.trim().is_empty()) {
+        if self.mode == "goal" {
+            let Some(g) = self.goal.as_ref().filter(|g| !g.goal.trim().is_empty()) else {
+                return Err("Describe the goal".into());
+            };
+            if g.goal.len() > 20_000 || g.criteria.as_ref().is_some_and(|c| c.len() > 20_000) {
+                return Err("Goal or criteria too long".into());
+            }
+        } else if self.prompts.iter().all(|p| p.trim().is_empty()) {
             return Err("Add at least one prompt".into());
         }
         if self.prompts.len() > 200 || self.prompts.iter().any(|p| p.len() > 20_000) {
@@ -64,6 +112,7 @@ impl Automation {
     pub fn total(&self) -> Option<i64> {
         let n = self.prompts_clean().len() as i64;
         match self.mode.as_str() {
+            "goal" => (self.repeat > 0).then_some(self.repeat),
             "queue" => Some(n),
             _ if self.repeat > 0 => Some(n * self.repeat),
             _ => None,
@@ -71,7 +120,20 @@ impl Automation {
     }
 
     pub fn sent(&self) -> i64 {
+        if self.mode == "goal" {
+            return self.step;
+        }
         self.iteration * self.prompts_clean().len() as i64 + self.step
+    }
+
+    /// Back to the start (keeps the configuration).
+    pub fn rewind(&mut self) {
+        self.step = 0;
+        self.iteration = 0;
+        self.last_sent_at = None;
+        self.progress = None;
+        self.log.clear();
+        self.pending = None;
     }
 }
 
@@ -88,6 +150,10 @@ pub struct Ctx<'a> {
     /// When the agent last finished a turn (provider signal).
     pub turn_ended_at: Option<i64>,
     pub last_message: Option<&'a str>,
+    /// Mode "goal": a supervisor call is in flight.
+    pub supervising: bool,
+    /// When the CLI process was (re)started. A prompt sent before that was interrupted.
+    pub started_at: i64,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -95,6 +161,81 @@ pub enum Decision {
     Wait(Option<String>),
     Send { text: String, step: i64, iteration: i64 },
     Finish(String),
+    /// Mode "goal": the agent finished a turn; ask the supervisor what comes next.
+    Supervise,
+}
+
+/// What the monitor hands to the goal supervisor when an agent finished a turn.
+#[derive(Debug, Clone)]
+pub struct SuperviseJob {
+    pub session_id: String,
+    pub automation: Automation,
+    /// The agent's latest answer (excerpt).
+    pub answer: String,
+    /// The session's own account (supervisor fallback).
+    pub account_id: Option<String>,
+    /// Claude transcript: the full answer is read from it.
+    pub transcript: Option<String>,
+}
+
+/// The first prompt of a goal: the goal itself, with the working agreement.
+pub fn kickoff_prompt(a: &Automation) -> String {
+    if let Some(p) = a.prompts_clean().first() {
+        return p.to_string();
+    }
+    let g = a.goal.clone().unwrap_or_default();
+    let mut s = String::new();
+    if let Some(p) = g.preamble.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+        s.push_str(p);
+        s.push_str("\n\n");
+    }
+    s.push_str(&format!("GOAL: {}\n", g.goal.trim()));
+    if let Some(c) = g.criteria.as_deref().map(str::trim).filter(|c| !c.is_empty()) {
+        s.push_str(&format!("SUCCESS CRITERIA: {c}\n"));
+    }
+    s.push_str(
+        "\nWork toward this goal autonomously. Start with a short plan, then implement the first step right away. \
+         End every answer with a short status: what is done, how you verified it, and what comes next.",
+    );
+    s
+}
+
+fn decide_goal(a: &Automation, c: &Ctx) -> Decision {
+    let Some(sent) = a.last_sent_at else {
+        if !c.ready || c.status == "working" {
+            return Decision::Wait(Some("Waiting until the session is ready".into()));
+        }
+        return Decision::Send { text: kickoff_prompt(a), step: 1, iteration: 0 };
+    };
+    let finished = match c.turn_ended_at {
+        Some(t) if t > sent => Some(t),
+        _ if !c.provider_signals && c.ready && c.status != "working" && c.now - sent > 8_000 => Some(sent + 8_000),
+        // The session restarted after the prompt went out: that turn was cut off.
+        _ if c.started_at > sent && c.ready && c.status != "working" => Some(c.started_at),
+        _ => None,
+    };
+    let Some(t) = finished else { return Decision::Wait(Some("Working toward the goal".into())) };
+    if let Some(p) = a.pending.as_deref().filter(|p| !p.trim().is_empty()) {
+        let due = t + a.delay_sec * 1000;
+        if c.now < due {
+            return Decision::Wait(Some(format!("Next step in {} s", (due - c.now + 999) / 1000)));
+        }
+        if !c.ready {
+            return Decision::Wait(Some("Waiting until the session is ready".into()));
+        }
+        return Decision::Send { text: p.to_string(), step: a.step + 1, iteration: 0 };
+    }
+    if c.supervising {
+        return Decision::Wait(Some("Reviewing the answer…".into()));
+    }
+    if a.log.last().is_some_and(|l| l.at >= t && l.status == "continue") {
+        // Already reviewed. (An error or a question pauses the goal; resuming reviews again.)
+        return Decision::Wait(a.note.clone());
+    }
+    if a.repeat > 0 && a.step >= a.repeat {
+        return Decision::Finish(format!("Stopped after {} rounds; the goal is not confirmed yet", a.step));
+    }
+    Decision::Supervise
 }
 
 pub fn decide(a: &Automation, c: &Ctx) -> Decision {
@@ -102,7 +243,7 @@ pub fn decide(a: &Automation, c: &Ctx) -> Decision {
         return Decision::Wait(None);
     }
     let prompts = a.prompts_clean();
-    if prompts.is_empty() {
+    if prompts.is_empty() && a.mode != "goal" {
         return Decision::Finish("No prompts".into());
     }
     if !c.running {
@@ -110,6 +251,9 @@ pub fn decide(a: &Automation, c: &Ctx) -> Decision {
     }
     if c.status == "rate-limited" {
         return Decision::Wait(Some("Waiting for the usage limit to reset".into()));
+    }
+    if a.mode == "goal" {
+        return decide_goal(a, c);
     }
     // Has the previous prompt been answered?
     let idle_since = match a.last_sent_at {
@@ -125,6 +269,8 @@ pub fn decide(a: &Automation, c: &Ctx) -> Decision {
                 Some(t) if t > sent => Some(t),
                 // No provider signals: settled output a while after sending counts as done.
                 _ if !c.provider_signals && c.ready && c.status != "working" && c.now - sent > 8_000 => Some(sent + 8_000),
+                // The session restarted after the prompt went out: go on with the next one.
+                _ if c.started_at > sent && c.ready && c.status != "working" => Some(c.started_at),
                 _ => None,
             };
             let Some(t) = finished else { return Decision::Wait(Some("Agent is working on the current prompt".into())) };
@@ -181,7 +327,15 @@ fn from_row(r: &Row) -> rusqlite::Result<Automation> {
         note: r.get("note")?,
         created_at: r.get("created_at")?,
         updated_at: r.get("updated_at")?,
+        goal: r.get::<_, Option<String>>("goal")?.and_then(|s| serde_json::from_str(&s).ok()),
+        progress: r.get("progress")?,
+        log: r.get::<_, Option<String>>("log")?.and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default(),
+        pending: r.get("pending")?,
     })
+}
+
+fn json_opt<T: Serialize>(v: &Option<T>) -> Option<String> {
+    v.as_ref().and_then(|x| serde_json::to_string(x).ok())
 }
 
 pub fn list(c: &Connection, session: Option<&str>) -> AppResult<Vec<Automation>> {
@@ -203,15 +357,17 @@ pub fn running_for(c: &Connection, session: &str) -> AppResult<Option<Automation
 
 pub fn save(c: &Connection, a: &Automation) -> AppResult<()> {
     c.execute(
-        "INSERT INTO automations(id,session_id,name,mode,prompts,repeat,delay_sec,stop_phrase,state,step,iteration,last_sent_at,note,created_at,updated_at)
-         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)
+        "INSERT INTO automations(id,session_id,name,mode,prompts,repeat,delay_sec,stop_phrase,state,step,iteration,last_sent_at,note,created_at,updated_at,goal,progress,log,pending)
+         VALUES(?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15,?16,?17,?18,?19)
          ON CONFLICT(id) DO UPDATE SET session_id=excluded.session_id, name=excluded.name, mode=excluded.mode,
            prompts=excluded.prompts, repeat=excluded.repeat, delay_sec=excluded.delay_sec, stop_phrase=excluded.stop_phrase,
            state=excluded.state, step=excluded.step, iteration=excluded.iteration, last_sent_at=excluded.last_sent_at,
-           note=excluded.note, updated_at=excluded.updated_at",
+           note=excluded.note, updated_at=excluded.updated_at, goal=excluded.goal, progress=excluded.progress,
+           log=excluded.log, pending=excluded.pending",
         params![
             a.id, a.session_id, a.name, a.mode, serde_json::to_string(&a.prompts)?, a.repeat, a.delay_sec, a.stop_phrase,
-            a.state, a.step, a.iteration, a.last_sent_at, a.note, a.created_at, now_iso()
+            a.state, a.step, a.iteration, a.last_sent_at, a.note, a.created_at, now_iso(),
+            json_opt(&a.goal), a.progress, serde_json::to_string(&a.log)?, a.pending
         ],
     )?;
     Ok(())
@@ -221,8 +377,9 @@ pub fn save(c: &Connection, a: &Automation) -> AppResult<()> {
 /// database, so a pause/stop from the UI can never be overwritten by a late tick.
 pub fn save_progress(c: &Connection, a: &Automation) -> AppResult<bool> {
     let n = c.execute(
-        "UPDATE automations SET state=?2, step=?3, iteration=?4, last_sent_at=?5, note=?6, updated_at=?7 WHERE id=?1 AND state='running'",
-        params![a.id, a.state, a.step, a.iteration, a.last_sent_at, a.note, now_iso()],
+        "UPDATE automations SET state=?2, step=?3, iteration=?4, last_sent_at=?5, note=?6, updated_at=?7, progress=?8, log=?9, pending=?10
+         WHERE id=?1 AND state='running'",
+        params![a.id, a.state, a.step, a.iteration, a.last_sent_at, a.note, now_iso(), a.progress, serde_json::to_string(&a.log)?, a.pending],
     )?;
     Ok(n > 0)
 }
@@ -297,11 +454,84 @@ mod tests {
             note: None,
             created_at: "t".into(),
             updated_at: "t".into(),
+            goal: None,
+            progress: None,
+            log: vec![],
+            pending: None,
         }
     }
 
     fn ready(now: i64) -> Ctx<'static> {
-        Ctx { now, running: true, status: "waiting-for-input", ready: true, provider_signals: true, turn_ended_at: None, last_message: None }
+        Ctx { now, running: true, status: "waiting-for-input", ready: true, provider_signals: true, turn_ended_at: None, last_message: None, supervising: false, started_at: 0 }
+    }
+
+    fn goal_auto() -> Automation {
+        let mut a = auto("goal", &[], 3);
+        a.goal = Some(GoalConfig { goal: "Ship the overdue feature".into(), criteria: Some("npm test passes".into()), ..Default::default() });
+        a
+    }
+
+    #[test]
+    fn goal_kicks_off_then_asks_the_supervisor_then_sends_its_prompt() {
+        let mut a = goal_auto();
+        assert!(a.validate().is_ok());
+        assert!(auto("goal", &[], 3).validate().is_err(), "a goal needs a description");
+        // 1. Kickoff: the goal itself.
+        let Decision::Send { text, step, .. } = decide(&a, &ready(1_000)) else { panic!("kickoff") };
+        assert!(text.contains("GOAL: Ship the overdue feature") && text.contains("SUCCESS CRITERIA: npm test passes"));
+        assert_eq!(step, 1);
+        a.step = 1;
+        a.last_sent_at = Some(1_000);
+        // 2. Agent still working.
+        assert!(matches!(decide(&a, &ready(2_000)), Decision::Wait(_)));
+        // 3. Turn ended: supervise (once).
+        let done = Ctx { turn_ended_at: Some(5_000), ..ready(6_000) };
+        assert_eq!(decide(&a, &done), Decision::Supervise);
+        assert!(matches!(decide(&a, &Ctx { supervising: true, ..done.clone() }), Decision::Wait(Some(m)) if m.contains("Reviewing")));
+        // 4. Supervisor wrote the next prompt: sent after the delay.
+        a.log.push(GoalStep { at: 6_500, status: "continue".into(), progress: 40, ..Default::default() });
+        a.pending = Some("Now add tests for listOverdue".into());
+        assert!(matches!(decide(&a, &Ctx { turn_ended_at: Some(5_000), ..ready(7_000) }), Decision::Wait(Some(m)) if m.contains("Next step")));
+        let d = decide(&a, &Ctx { turn_ended_at: Some(5_000), ..ready(11_000) });
+        assert_eq!(d, Decision::Send { text: "Now add tests for listOverdue".into(), step: 2, iteration: 0 });
+        // 5. A reviewed answer without a pending prompt is not reviewed again.
+        a.pending = None;
+        assert!(matches!(decide(&a, &Ctx { turn_ended_at: Some(5_000), ..ready(12_000) }), Decision::Wait(_)));
+        // 6. Round limit.
+        a.step = 3;
+        a.last_sent_at = Some(20_000);
+        assert!(matches!(decide(&a, &Ctx { turn_ended_at: Some(25_000), ..ready(26_000) }), Decision::Finish(_)));
+        a.rewind();
+        assert_eq!((a.step, a.last_sent_at, a.log.len(), a.pending.clone()), (0, None, 0, None));
+    }
+
+    #[test]
+    fn a_turn_cut_off_by_a_restart_counts_as_finished() {
+        let mut a = goal_auto();
+        a.step = 1;
+        a.last_sent_at = Some(1_000);
+        // No turn end since the prompt, but the process restarted later: review, don't hang.
+        assert_eq!(decide(&a, &Ctx { started_at: 50_000, ..ready(60_000) }), Decision::Supervise);
+        assert!(matches!(decide(&a, &Ctx { started_at: 500, ..ready(60_000) }), Decision::Wait(_)), "started before the prompt");
+        assert!(matches!(decide(&a, &Ctx { started_at: 50_000, ready: false, ..ready(60_000) }), Decision::Wait(_)));
+    }
+
+    #[test]
+    fn goal_mode_round_trips_through_the_database() {
+        let c = crate::db::open_in_memory().unwrap();
+        let mut a = goal_auto();
+        a.log.push(GoalStep { at: 1, status: "continue".into(), progress: 30, summary: "s".into(), prompt: Some("p".into()), question: None });
+        a.pending = Some("next".into());
+        a.progress = Some(30);
+        save(&c, &a).unwrap();
+        let b = get(&c, "a").unwrap();
+        assert_eq!(b.goal, a.goal);
+        assert_eq!(b.log, a.log);
+        assert_eq!((b.progress, b.pending.clone()), (Some(30), Some("next".into())));
+        a.pending = None;
+        a.progress = Some(60);
+        assert!(save_progress(&c, &a).unwrap());
+        assert_eq!(get(&c, "a").unwrap().progress, Some(60));
     }
 
     /// Apply a Send decision like the monitor does.

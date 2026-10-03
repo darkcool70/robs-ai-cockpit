@@ -6,6 +6,7 @@ import { setFont } from "../lib/terminals";
 import { Button, Card, Field, IconButton, Input, SectionTitle, Select } from "../components/ui";
 import { AUTONOMY } from "../lib/models";
 import { VoiceSettings } from "./VoiceSettings";
+import { ProSettings } from "@pro/ProSettings";
 import { AppearanceSettings, BudgetSettings, RemoteSettings, TestsSettings, TtsSettings, UpdateSettings } from "./SettingsExtras";
 
 export function SettingsView() {
@@ -54,6 +55,8 @@ export function SettingsView() {
     <div className="h-full overflow-auto">
       <div className="mx-auto max-w-[900px] space-y-4 p-5">
         <h1 className="text-[16px] font-semibold">Settings</h1>
+
+        <ProSettings />
 
         <Card className="space-y-3 p-3">
           <SectionTitle>CLI binaries</SectionTitle>

@@ -1,14 +1,17 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { BarChart3, FolderPlus, History, LayoutGrid, Settings, Shield, Users, FolderOpen, Trash2, Gauge, Repeat, KanbanSquare, GitPullRequestDraft, Pin } from "lucide-react";
+import { BarChart3, FolderPlus, History, LayoutGrid, Settings, Shield, Users, FolderOpen, Trash2, Gauge, Repeat, KanbanSquare, GitPullRequestDraft, Pin, Sparkles } from "lucide-react";
 import { useApp, type View } from "../store";
 import { api } from "../lib/api";
 import { sessionDrag } from "../lib/drag";
 import { cx, IconButton, ProviderMark, StatusDot } from "./ui";
+import { AssistantAvatar } from "./Avatar";
+import { assistantOf, moodOf } from "../lib/assistants";
 import logo from "../logo.png";
 
 const NAV: { view: View; label: string; icon: typeof LayoutGrid }[] = [
   { view: "overview", label: "Overview", icon: Gauge },
   { view: "workspace", label: "Workspace", icon: LayoutGrid },
+  { view: "assistants", label: "Assistants", icon: Sparkles },
   { view: "tasks", label: "Tasks", icon: KanbanSquare },
   { view: "review", label: "Review & commit", icon: GitPullRequestDraft },
   { view: "pins", label: "Pins", icon: Pin },
@@ -36,6 +39,9 @@ export function Sidebar() {
   const waiting = useApp((s) => Object.values(s.sessions).filter((x) => x.kind === "agent" && x.runtime?.running && x.runtime.status === "waiting-for-input").length);
   const loopsRunning = useApp((s) => Object.values(s.sessions).filter((x) => x.runtime?.automation?.state === "running").length);
   const toReview = useApp((s) => s.tasks.filter((t) => t.status === "review").length);
+  const assistants = useApp((s) => s.assistants);
+  const assistantsBusy = useApp((s) => s.assistants.filter((a) => a.sessionId && s.sessions[a.sessionId]?.runtime?.automation?.state === "running").length);
+  const assistantsNeedYou = useApp((s) => s.assistants.filter((a) => a.sessionId && s.sessions[a.sessionId]?.runtime?.automation?.note?.startsWith("Needs you")).length);
 
   const pick = async () => {
     const dir = await open({ directory: true, multiple: false, title: "Add project directory" });
@@ -62,6 +68,14 @@ export function Sidebar() {
             {label}
             {v === "overview" && waiting > 0 && (
               <span className="ml-auto rounded-full bg-ok/20 px-1.5 text-[10.5px] font-semibold text-ok" title="Agents waiting for you">{waiting}</span>
+            )}
+            {v === "assistants" && (assistantsNeedYou > 0 || assistantsBusy > 0) && (
+              <span
+                className={cx("ml-auto rounded-full px-1.5 text-[10.5px] font-semibold", assistantsNeedYou > 0 ? "bg-warn/20 text-warn" : "bg-accent/20 text-accent")}
+                title={assistantsNeedYou > 0 ? "Assistants waiting for you" : "Assistants working on a goal"}
+              >
+                {assistantsNeedYou || assistantsBusy}
+              </span>
             )}
             {v === "tasks" && toReview > 0 && (
               <span className="ml-auto rounded-full bg-ok/20 px-1.5 text-[10.5px] font-semibold text-ok" title="Tasks ready for review">{toReview}</span>
@@ -148,7 +162,11 @@ export function Sidebar() {
                     : <>{s.kind !== "agent" ? s.kind : acc?.name ?? "—"}{s.runtime?.model ? ` · ${s.runtime.model}` : ""}</>}
                 </span>
               </span>
-              <ProviderMark provider={s.provider} />
+              {assistantOf(assistants, s.id) ? (
+                <AssistantAvatar avatar={assistantOf(assistants, s.id)!.avatar} color={assistantOf(assistants, s.id)!.color} mood={moodOf(s)} size={20} />
+              ) : (
+                <ProviderMark provider={s.provider} />
+              )}
             </button>
           );
         })}

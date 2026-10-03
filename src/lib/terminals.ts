@@ -98,6 +98,8 @@ interface Entry {
   pending: { seq: number; data: string }[];
   observer?: ResizeObserver;
   lastSize: string;
+  /** Where the terminal goes back to when a second view (assistant room) lets go of it. */
+  home?: HTMLElement;
 }
 
 const entries = new Map<string, Entry>();
@@ -220,6 +222,8 @@ export function prepareForStart(id: string) {
 
 export function mount(id: string, host: HTMLElement): Entry {
   const e = entries.get(id) ?? create(id);
+  // Shown in a second place (e.g. an assistant's room): remember the pane to return to.
+  if (e.el.parentElement && e.el.parentElement !== host && e.el.parentElement.isConnected) e.home = e.el.parentElement;
   if (e.el.parentElement !== host) host.appendChild(e.el);
   e.observer?.disconnect();
   e.observer = new ResizeObserver(() => fitNow(id));
@@ -234,6 +238,9 @@ export function unmount(id: string, host: HTMLElement) {
   e.observer?.disconnect();
   e.observer = undefined;
   if (e.el.parentElement === host) host.removeChild(e.el);
+  const home = e.home;
+  e.home = undefined;
+  if (home && home !== host && home.isConnected) mount(id, home);
 }
 
 export function fitNow(id: string) {

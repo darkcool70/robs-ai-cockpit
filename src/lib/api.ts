@@ -116,21 +116,42 @@ export interface RuntimeView {
   gitChanged?: number | null;
 }
 
+export type AutomationMode = "queue" | "loop" | "goal";
+
 export interface AutomationView {
   id: string;
   name: string;
-  mode: "queue" | "loop";
+  mode: AutomationMode;
   state: "running" | "paused" | "done" | "stopped";
   sent: number;
   total: number | null;
   note: string | null;
+  /** Mode "goal": supervisor's progress estimate, 0–100. */
+  progress?: number | null;
+}
+
+export interface GoalConfig {
+  goal: string;
+  criteria?: string | null;
+  supervisorAccountId?: string | null;
+  supervisorModel?: string | null;
+  preamble?: string | null;
+}
+
+export interface GoalStep {
+  at: number;
+  status: "continue" | "done" | "blocked" | "error";
+  progress: number;
+  summary: string;
+  prompt?: string | null;
+  question?: string | null;
 }
 
 export interface Automation {
   id: string;
   sessionId: string;
   name: string;
-  mode: "queue" | "loop";
+  mode: AutomationMode;
   prompts: string[];
   repeat: number;
   delaySec: number;
@@ -140,6 +161,47 @@ export interface Automation {
   iteration: number;
   lastSentAt: number | null;
   note: string | null;
+  createdAt: string;
+  updatedAt: string;
+  goal?: GoalConfig | null;
+  progress?: number | null;
+  log?: GoalStep[];
+  pending?: string | null;
+}
+
+/** Pro edition license (null in the open-source build). */
+export interface ProStatus {
+  state: "trial" | "active" | "expired";
+  trialEndsAt: number;
+  plan: "monthly" | "yearly" | null;
+  validUntil: number | null;
+  keyHint: string | null;
+  email: string | null;
+  checkedAt: number | null;
+  server: string;
+}
+
+/** A named agent with a face, a personality and a goal (see AssistantsView). */
+export interface Assistant {
+  id: string;
+  name: string;
+  /** "preset:<id>" or a data:image URL. */
+  avatar: string;
+  color: string | null;
+  soul: string;
+  agentMd: string;
+  accountId: string | null;
+  model: string | null;
+  autonomy: string | null;
+  projectId: string | null;
+  goal: string;
+  criteria: string | null;
+  supervisorAccountId: string | null;
+  supervisorModel: string | null;
+  maxRounds: number;
+  delaySec: number;
+  sessionId: string | null;
+  sort: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -179,12 +241,17 @@ export interface RecentFile {
 export interface HudNote {
   id: string;
   sessionId: string;
-  kind: "done" | "input" | "limit" | "loop" | "failed";
+  kind: "done" | "input" | "limit" | "loop" | "failed" | "goal";
   title: string;
   subtitle: string;
   message: string;
   provider: Provider;
   at: number;
+  /** Set when the session belongs to an assistant: its face in the pop-up. */
+  avatar?: string | null;
+  color?: string | null;
+  /** Animation mood of the face. */
+  mood?: string | null;
 }
 
 export interface Session {
@@ -572,7 +639,17 @@ export const api = {
   fileOpen: (path: string) => invoke<void>("file_open", { path }),
   fileDiff: (path: string) => invoke<{ kind: "diff" | "new" | "unchanged"; text: string }>("file_diff", { path }),
   automationList: (sessionId?: string) => invoke<Automation[]>("automation_list", { sessionId }),
-  automationSave: (input: { id?: string; sessionId: string; name: string; mode: "queue" | "loop"; prompts: string[]; repeat: number; delaySec: number; stopPhrase?: string | null; start: boolean }) =>
+  openProjectPage: (page: "download" | "pro" | "repo") => invoke<void>("open_project_page", { page }),
+  proStatus: () => invoke<ProStatus>("pro_status"),
+  proActivate: (key: string) => invoke<ProStatus>("pro_activate", { key }),
+  proDeactivate: () => invoke<ProStatus>("pro_deactivate"),
+  proRefresh: () => invoke<ProStatus>("pro_refresh"),
+  proOpen: (what: "monthly" | "yearly" | "portal" | "pricing") => invoke<void>("pro_open", { what }),
+  assistantsList: () => invoke<Assistant[]>("assistants_list"),
+  assistantSave: (input: Partial<Assistant> & { name: string; avatar: string }) => invoke<Assistant>("assistant_save", { input }),
+  assistantDelete: (id: string) => invoke<void>("assistant_delete", { id }),
+  assistantLaunch: (id: string, goal?: string) => invoke<{ session: Session; automation: Automation }>("assistant_launch", { id, goal }),
+  automationSave: (input: { id?: string; sessionId: string; name: string; mode: AutomationMode; prompts: string[]; repeat: number; delaySec: number; stopPhrase?: string | null; start: boolean; goal?: GoalConfig | null }) =>
     invoke<Automation>("automation_save", { input }),
   automationControl: (id: string, action: "start" | "pause" | "stop" | "reset") => invoke<Automation>("automation_control", { id, action }),
   automationDelete: (id: string) => invoke<void>("automation_delete", { id }),

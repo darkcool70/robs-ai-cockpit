@@ -1,5 +1,7 @@
 @import "tailwindcss";
 @import "@xterm/xterm/css/xterm.css";
+/* The Pro edition lives in ./pro, which .gitignore hides from Tailwind's automatic scan. */
+@source "../pro/src";
 
 @theme {
   --font-sans: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
@@ -113,4 +115,61 @@ html.hud body,
 html.hud #root {
   background: transparent;
   overflow: hidden;
+}
+
+/* ---------------------------------------------------------------------------
+   Assistant avatars (components/Avatar.tsx): one animation per mood.
+   --------------------------------------------------------------------------- */
+.av-body { transition: filter 0.4s; }
+.av svg .av-eyes { animation: av-blink 4.6s infinite; transform-box: view-box; }
+.av svg .av-pupil { animation: av-look 9s ease-in-out infinite; }
+.av-idle .av-body { animation: av-float 4s ease-in-out infinite; }
+.av-working .av-body { animation: av-bob 0.9s ease-in-out infinite; }
+.av-working .av-antenna, .av-thinking .av-antenna { animation: av-glow 0.8s ease-in-out infinite alternate; }
+.av-thinking .av-body { animation: av-tilt 2.4s ease-in-out infinite; }
+.av-waiting .av-ring { animation: av-pulse 1.6s ease-out infinite; }
+.av-waiting .av-body { animation: av-float 2.2s ease-in-out infinite; }
+.av-done .av-body { animation: av-hop 1.4s ease-in-out 3; }
+.av-blocked .av-body { animation: av-shake 0.5s ease-in-out 2; filter: saturate(0.6); }
+.av-offline .av-body { filter: grayscale(0.85) brightness(0.8); }
+.av-offline svg .av-eyes { animation: none; }
+.av-plume { animation: av-sway 3s ease-in-out infinite; transform-origin: 56px 22px; transform-box: view-box; }
+.av-flame { animation: av-glow 0.3s ease-in-out infinite alternate; }
+
+.av-orbit { animation: av-spin 1.6s linear infinite; pointer-events: none; }
+.av-thinking .av-orbit { animation-duration: 2.4s; }
+.av-orbit i { position: absolute; width: 11%; height: 11%; border-radius: 9999px; background: var(--av-color); }
+.av-orbit i:nth-child(1) { top: 0; left: 44.5%; }
+.av-orbit i:nth-child(2) { bottom: 8%; left: 6%; opacity: 0.7; transform: scale(0.8); }
+.av-orbit i:nth-child(3) { bottom: 8%; right: 6%; opacity: 0.45; transform: scale(0.6); }
+
+.av-sparkles i { position: absolute; width: 10%; height: 10%; background: var(--color-warn); clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); animation: av-twinkle 1.2s ease-in-out infinite; }
+.av-sparkles i:nth-child(1) { top: 0; left: 10%; }
+.av-sparkles i:nth-child(2) { top: 6%; right: 4%; animation-delay: 0.3s; }
+.av-sparkles i:nth-child(3) { bottom: 6%; left: 0; animation-delay: 0.6s; }
+.av-sparkles i:nth-child(4) { bottom: 0; right: 12%; animation-delay: 0.9s; }
+
+@keyframes av-blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+@keyframes av-look { 0%, 40%, 100% { transform: translateX(0); } 50%, 60% { transform: translateX(1.6px); } 70%, 80% { transform: translateX(-1.6px); } }
+@keyframes av-float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3%); } }
+@keyframes av-bob { 0%, 100% { transform: translateY(0) rotate(0); } 25% { transform: translateY(-4%) rotate(-3deg); } 75% { transform: translateY(-2%) rotate(3deg); } }
+@keyframes av-tilt { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(6deg); } }
+@keyframes av-hop { 0%, 100% { transform: translateY(0) scale(1); } 30% { transform: translateY(-14%) scale(1.04); } 55% { transform: translateY(0) scale(0.97, 1.03); } }
+@keyframes av-shake { 0%, 100% { transform: translateX(0); } 25% { transform: translateX(-5%); } 75% { transform: translateX(5%); } }
+@keyframes av-sway { 0%, 100% { transform: rotate(-6deg); } 50% { transform: rotate(8deg); } }
+@keyframes av-glow { from { opacity: 0.45; } to { opacity: 1; } }
+@keyframes av-spin { to { transform: rotate(360deg); } }
+@keyframes av-pulse { 0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-warn) 55%, transparent); } 100% { box-shadow: 0 0 0 14px transparent; } }
+@keyframes av-twinkle { 0%, 100% { transform: scale(0.4); opacity: 0.2; } 50% { transform: scale(1); opacity: 1; } }
+
+/* Chat: typing dots and message entrance. */
+.typing-dots i { display: inline-block; width: 6px; height: 6px; margin: 0 2px; border-radius: 9999px; background: currentColor; animation: typing 1.2s infinite ease-in-out; }
+.typing-dots i:nth-child(2) { animation-delay: 0.15s; }
+.typing-dots i:nth-child(3) { animation-delay: 0.3s; }
+@keyframes typing { 0%, 60%, 100% { transform: translateY(0); opacity: 0.35; } 30% { transform: translateY(-4px); opacity: 1; } }
+.msg-in { animation: msg-in 0.25s ease-out; }
+@keyframes msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .av *, .av, .typing-dots i, .msg-in { animation: none !important; }
 }

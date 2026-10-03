@@ -1,8 +1,9 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
-import { AlertTriangle, CheckCircle2, CornerDownLeft, ExternalLink, Loader2, Mic, Repeat, X, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CornerDownLeft, ExternalLink, Loader2, Mic, Repeat, Sparkles, X, XCircle } from "lucide-react";
 import { api, type HudNote } from "../lib/api";
 import { cx, ProviderMark } from "./ui";
+import { AssistantAvatar, type Mood } from "./Avatar";
 
 type Note = HudNote & { sound?: boolean; timeoutSec?: number; expires: number; sent?: boolean };
 interface VoiceState {
@@ -19,6 +20,7 @@ const KIND = {
   limit: { icon: AlertTriangle, tone: "text-warn", bar: "bg-warn", label: "Usage limit reached" },
   loop: { icon: Repeat, tone: "text-accent", bar: "bg-accent", label: "Loop finished" },
   failed: { icon: XCircle, tone: "text-err", bar: "bg-err", label: "Session ended with an error" },
+  goal: { icon: Sparkles, tone: "text-ok", bar: "bg-ok", label: "Goal reached" },
 } as const;
 
 function chime() {
@@ -94,10 +96,14 @@ export function Hud() {
           <div key={n.id} className="relative overflow-hidden rounded-lg border border-line-strong bg-panel text-[12.5px] shadow-2xl">
             <span className={cx("absolute inset-y-0 left-0 w-1", k.bar)} />
             <div className="flex items-start gap-2 px-3 pt-2.5 pl-4">
-              <Icon size={15} className={cx("mt-0.5 shrink-0", k.tone)} />
+              {n.avatar ? (
+                <AssistantAvatar avatar={n.avatar} color={n.color} mood={(n.mood as Mood) ?? "idle"} size={34} className="mt-0.5" />
+              ) : (
+                <Icon size={15} className={cx("mt-0.5 shrink-0", k.tone)} />
+              )}
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5">
-                  <ProviderMark provider={n.provider} />
+                  {!n.avatar && <ProviderMark provider={n.provider} />}
                   <b className="truncate">{n.title}</b>
                   <span className={cx("shrink-0 text-[11px]", k.tone)}>{k.label}</span>
                 </div>

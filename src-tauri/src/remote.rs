@@ -72,6 +72,9 @@ impl Remote {
             while !flag.load(Ordering::SeqCst) {
                 match listener.accept() {
                     Ok((stream, _)) => {
+                        // On Windows an accepted socket inherits the listener's non-blocking
+                        // mode: a request that arrives a moment later would read as "no data".
+                        let _ = stream.set_nonblocking(false);
                         let (db, rts, key) = (db.clone(), runtimes.clone(), key.clone());
                         std::thread::spawn(move || {
                             let _ = handle(stream, &db, &rts, &key);

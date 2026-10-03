@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
-import { ArrowDown, ArrowUp, BookText, Pause, Pencil, Play, Plus, Repeat, RotateCcw, Send, Square, Trash2, X } from "lucide-react";
+import { ArrowDown, ArrowUp, BookText, Compass, Pause, Pencil, Play, Plus, Repeat, RotateCcw, Send, Square, Target, Trash2, X } from "lucide-react";
 import { useApp } from "../store";
-import { api, errMsg, type Automation, type Template } from "../lib/api";
+import { api, errMsg, type Automation, type AutomationMode, type Template } from "../lib/api";
 import { ago } from "../lib/format";
 import { Badge, Button, Card, cx, Empty, Field, IconButton, Input, Meter, Modal, ProviderMark, SectionTitle, Select } from "../components/ui";
 
@@ -54,9 +54,10 @@ export function LoopsView() {
       <div className="min-w-0 flex-1 overflow-auto p-4">
         <div className="mb-4 flex items-center justify-between">
           <div>
-            <h1 className="text-[16px] font-semibold">Loops &amp; queues</h1>
+            <h1 className="text-[16px] font-semibold">Loops, queues &amp; goals</h1>
             <p className="text-[12px] text-muted">
               Prepare prompts that run one after another — each is sent when the agent finished the previous one. Loops repeat until a count or a stop phrase.
+              Goals need no prompts: a small supervisor model reads every answer and writes the next step until the goal is reached.
             </p>
           </div>
           <Button variant="primary" onClick={() => setEditing({ mode: "queue", prompts: [""], repeat: 1, delaySec: 5 })}><Plus size={13} /> New loop</Button>
@@ -75,15 +76,16 @@ export function LoopsView() {
             {loops.map((a) => {
               const s = sessions[a.sessionId];
               const prompts = a.prompts.length;
-              const sent = a.iteration * prompts + a.step;
-              const total = a.mode === "queue" ? prompts : a.repeat > 0 ? prompts * a.repeat : null;
+              const isGoal = a.mode === "goal";
+              const sent = isGoal ? a.step : a.iteration * prompts + a.step;
+              const total = isGoal ? (a.repeat > 0 ? a.repeat : null) : a.mode === "queue" ? prompts : a.repeat > 0 ? prompts * a.repeat : null;
               return (
                 <Card key={a.id} className="px-3 py-2.5">
                   <div className="flex items-center gap-2">
-                    <Repeat size={14} className="text-muted" />
+                    {isGoal ? <Target size={14} className="text-accent" /> : <Repeat size={14} className="text-muted" />}
                     <b className="text-[13px]">{a.name}</b>
                     <Badge tone={STATE_TONE[a.state]}>{a.state}</Badge>
-                    <Badge>{a.mode === "queue" ? `queue · ${prompts} prompts` : `loop · ${a.repeat > 0 ? `${a.repeat}×` : "until stopped"}`}</Badge>
+                    <Badge>{isGoal ? `goal · ${a.progress ?? 0}%` : a.mode === "queue" ? `queue · ${prompts} prompts` : `loop · ${a.repeat > 0 ? `${a.repeat}×` : "until stopped"}`}</Badge>
                     <span className="flex min-w-0 items-center gap-1 text-[12px] text-muted">
                       {s ? <><ProviderMark provider={s.provider} /> <span className="truncate">{s.name}</span></> : <span className="text-faint">session closed</span>}
                     </span>
@@ -100,11 +102,23 @@ export function LoopsView() {
                     </div>
                   </div>
                   <div className="mt-2 flex items-center gap-3">
-                    <div className="w-40">{total ? <Meter value={(sent / total) * 100} tone="accent" /> : <Meter value={100} tone="accent" />}</div>
-                    <span className="text-[11.5px] tabular text-muted">{sent}{total ? ` / ${total}` : ""} sent</span>
+                    <div className="w-40">
+                      {isGoal ? <Meter value={a.progress ?? 0} tone={a.state === "done" ? "ok" : "accent"} /> : total ? <Meter value={(sent / total) * 100} tone="accent" /> : <Meter value={100} tone="accent" />}
+                    </div>
+                    <span className="text-[11.5px] tabular text-muted">{isGoal ? `round ${sent}${total ? ` / ${total}` : ""}` : `${sent}${total ? ` / ${total}` : ""} sent`}</span>
                     {a.stopPhrase && <span className="text-[11.5px] text-faint">stops on “{a.stopPhrase}”</span>}
                     <span className="min-w-0 flex-1 truncate text-[11.5px] text-faint">{a.note}{a.lastSentAt ? ` · last sent ${ago(a.lastSentAt)}` : ""}</span>
                   </div>
+                  {isGoal && (
+                    <div className="mt-2 space-y-1">
+                      <p className="text-[12px]"><Target size={11} className="mr-1 inline text-accent" />{a.goal?.goal}</p>
+                      {(a.log ?? []).slice(-3).map((l) => (
+                        <p key={l.at} className={cx("truncate text-[11.5px]", l.status === "done" ? "text-ok" : l.status === "blocked" ? "text-warn" : l.status === "error" ? "text-err" : "text-muted")}>
+                          <Compass size={10} className="mr-1 inline" />{l.progress}% · {l.question || l.summary}
+                        </p>
+                      ))}
+                    </div>
+                  )}
                   <ol className="mt-2 space-y-0.5">
                     {a.prompts.map((p, i) => (
                       <li key={i} className={cx("truncate text-[11.5px]", i === a.step && a.state === "running" ? "text-accent" : "text-muted")}>
@@ -152,7 +166,12 @@ function LoopEditor({ initial, templates, onClose, onSaved }: { initial: Partial
   const agents = order.map((id) => sessions[id]).filter((s) => s && s.kind === "agent");
   const [sessionId, setSessionId] = useState(initial.sessionId ?? (focusedId && sessions[focusedId]?.kind === "agent" ? focusedId : agents[0]?.id) ?? "");
   const [name, setName] = useState(initial.name ?? "");
-  const [mode, setMode] = useState<"queue" | "loop">(initial.mode ?? "queue");
+  const accounts = useApp((s) => s.accounts);
+  const [mode, setMode] = useState<AutomationMode>(initial.mode ?? "queue");
+  const [goalText, setGoalText] = useState(initial.goal?.goal ?? "");
+  const [criteria, setCriteria] = useState(initial.goal?.criteria ?? "");
+  const [supAccount, setSupAccount] = useState(initial.goal?.supervisorAccountId ?? "");
+  const [supModel, setSupModel] = useState(initial.goal?.supervisorModel ?? "");
   const [prompts, setPrompts] = useState<string[]>(initial.prompts?.length ? initial.prompts : [""]);
   const [repeat, setRepeat] = useState(initial.repeat ?? 1);
   const [delay, setDelay] = useState(initial.delaySec ?? 5);
@@ -183,16 +202,18 @@ function LoopEditor({ initial, templates, onClose, onSaved }: { initial: Partial
   const save = async (start: boolean) => {
     setBusy(true);
     try {
+      const goal = mode === "goal";
       await api.automationSave({
         id: initial.id,
         sessionId,
-        name: name.trim() || (mode === "queue" ? "Queue" : "Loop"),
+        name: name.trim() || (mode === "queue" ? "Queue" : goal ? "Goal" : "Loop"),
         mode,
-        prompts: prompts.map((p) => p.trim()).filter(Boolean),
+        prompts: goal ? [] : prompts.map((p) => p.trim()).filter(Boolean),
         repeat: mode === "queue" ? 1 : repeat,
         delaySec: delay,
-        stopPhrase: stop.trim() || null,
+        stopPhrase: goal ? null : stop.trim() || null,
         start,
+        goal: goal ? { goal: goalText, criteria: criteria || null, supervisorAccountId: supAccount || null, supervisorModel: supModel || null } : null,
       });
       onSaved();
       onClose();
@@ -233,19 +254,51 @@ function LoopEditor({ initial, templates, onClose, onSaved }: { initial: Partial
           </div>
           <Field label="Type">
             <div className="flex gap-1.5">
-              {(["queue", "loop"] as const).map((m) => (
+              {(["queue", "loop", "goal"] as const).map((m) => (
                 <button
                   key={m}
                   type="button"
+                  disabled={m === "goal" && !__PRO__}
+                  title={m === "goal" && !__PRO__ ? "Goals are part of Robs AI Cockpit Pro" : undefined}
                   onClick={() => setMode(m)}
                   className={cx("flex-1 rounded border px-3 py-1.5 text-left text-[12.5px]", mode === m ? "border-accent bg-accent/10" : "border-line-strong hover:bg-hover")}
                 >
-                  <b>{m === "queue" ? "Queue" : "Loop"}</b>
-                  <span className="block text-[11px] text-faint">{m === "queue" ? "Each prompt once, in order" : "Repeat the prompts — N times or until a stop phrase"}</span>
+                  <b>{m === "queue" ? "Queue" : m === "loop" ? "Loop" : "Goal"}</b>
+                  {m === "goal" && <Badge tone="accent">Pro</Badge>}
+                  <span className="block text-[11px] text-faint">
+                    {m === "queue" ? "Each prompt once, in order" : m === "loop" ? "Repeat the prompts — N times or until a stop phrase" : "A supervisor writes each next prompt until the goal is reached"}
+                  </span>
                 </button>
               ))}
             </div>
           </Field>
+          {mode === "goal" ? (
+            <div className="grid gap-3">
+              <Field label="Goal" hint="What should be achieved? The agent works on it step by step.">
+                <textarea
+                  value={goalText}
+                  onChange={(e) => setGoalText(e.target.value)}
+                  rows={3}
+                  placeholder="e.g. Add input validation to every POST route, with tests"
+                  className="rounded border border-line-strong bg-bg px-2 py-1.5 text-[12.5px] placeholder:text-faint focus:border-accent focus:outline-none"
+                />
+              </Field>
+              <Field label="Done when (optional)" hint="The supervisor only calls the goal reached when this is shown to be true.">
+                <Input value={criteria} onChange={(e) => setCriteria(e.target.value)} placeholder="npm test passes" />
+              </Field>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Supervisor account" hint="Runs in the background with this login">
+                  <Select value={supAccount} onChange={(e) => setSupAccount(e.target.value)}>
+                    <option value="">Same as the session</option>
+                    {accounts.filter((x) => x.provider !== "custom").map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                  </Select>
+                </Field>
+                <Field label="Supervisor model" hint="Small and cheap is enough">
+                  <Input value={supModel} onChange={(e) => setSupModel(e.target.value)} placeholder="haiku (Claude) · smallest (Codex)" />
+                </Field>
+              </div>
+            </div>
+          ) : (
           <Field label={`Prompts (${prompts.filter((p) => p.trim()).length})`}>
             <div className="grid gap-1.5">
               {prompts.map((p, i) => (
@@ -281,18 +334,21 @@ function LoopEditor({ initial, templates, onClose, onSaved }: { initial: Partial
               </div>
             </div>
           </Field>
+          )}
           <div className="grid grid-cols-3 gap-3">
-            {mode === "loop" && (
-              <Field label="Rounds" hint="0 = until stopped / stop phrase">
+            {mode !== "queue" && (
+              <Field label={mode === "goal" ? "Max rounds" : "Rounds"} hint={mode === "goal" ? "0 = until reached" : "0 = until stopped / stop phrase"}>
                 <Input type="number" min={0} max={10000} value={repeat} onChange={(e) => setRepeat(Math.max(0, Number(e.target.value) || 0))} />
               </Field>
             )}
             <Field label="Pause between prompts (s)" hint="After the agent finished">
               <Input type="number" min={0} max={86400} value={delay} onChange={(e) => setDelay(Math.max(0, Number(e.target.value) || 0))} />
             </Field>
-            <Field label="Stop phrase (optional)" hint="Ends when the agent's answer contains it">
-              <Input value={stop} onChange={(e) => setStop(e.target.value)} placeholder="ALLE PUNKTE ERLEDIGT" />
-            </Field>
+            {mode !== "goal" && (
+              <Field label="Stop phrase (optional)" hint="Ends when the agent's answer contains it">
+                <Input value={stop} onChange={(e) => setStop(e.target.value)} placeholder="ALLE PUNKTE ERLEDIGT" />
+              </Field>
+            )}
           </div>
           <p className="text-[11px] text-faint">
             Usage limits pause the loop; with auto-continue it goes on after the reset. The session’s autonomy setting decides whether the agent may act without asking —

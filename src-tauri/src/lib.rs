@@ -20,6 +20,25 @@ pub mod stt;
 pub mod update;
 pub mod usage;
 
+/// Robs AI Cockpit Pro: assistants, goal supervisor and licensing. Lives in a separate private
+/// repository checked out at `pro/` and is only compiled with `--features pro` (see docs/PRO.md).
+#[cfg(feature = "pro")]
+#[path = "../../pro/src-tauri/mod.rs"]
+pub mod pro;
+
+pub const PRO_NOTE: &str = "Goals are part of Robs AI Cockpit Pro (official download, 7-day free trial)";
+
+/// An agent working toward a goal finished a turn: let the supervisor decide what comes next.
+pub fn supervise(app: tauri::AppHandle, job: automation::SuperviseJob) {
+    #[cfg(feature = "pro")]
+    pro::goal::spawn(app, job);
+    #[cfg(not(feature = "pro"))]
+    {
+        let state = app.state::<AppState>();
+        monitor::pause_automation(&app, &state.db, &state.runtimes, &job.session_id, &job.automation.id, PRO_NOTE);
+    }
+}
+
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -112,6 +131,8 @@ pub fn run() {
                 eprintln!("{e}");
             }
             spawn_indexer(app.handle().clone(), db.clone());
+            #[cfg(feature = "pro")]
+            pro::license::spawn_refresher(db.clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -201,6 +222,25 @@ pub fn run() {
             commands::templates_list,
             commands::template_save,
             commands::template_delete,
+            commands::open_project_page,
+            #[cfg(feature = "pro")]
+            pro::commands::assistants_list,
+            #[cfg(feature = "pro")]
+            pro::commands::assistant_save,
+            #[cfg(feature = "pro")]
+            pro::commands::assistant_delete,
+            #[cfg(feature = "pro")]
+            pro::commands::assistant_launch,
+            #[cfg(feature = "pro")]
+            pro::commands::pro_status,
+            #[cfg(feature = "pro")]
+            pro::commands::pro_activate,
+            #[cfg(feature = "pro")]
+            pro::commands::pro_deactivate,
+            #[cfg(feature = "pro")]
+            pro::commands::pro_refresh,
+            #[cfg(feature = "pro")]
+            pro::commands::pro_open,
             commands::stt_status,
             commands::stt_install,
             commands::stt_warmup,

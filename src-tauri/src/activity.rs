@@ -35,6 +35,13 @@ impl Activity {
     }
 }
 
+static PASTE_TAG: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| regex::Regex::new(r"</?pasted_content[^>]*>").unwrap());
+
+/// A prompt as the user wrote it: without the CLI's paste markers.
+pub fn clean_prompt(s: &str) -> String {
+    PASTE_TAG.replace_all(s, "").into_owned()
+}
+
 /// First `n` characters, whitespace collapsed.
 pub fn excerpt(s: &str, n: usize) -> String {
     let flat = s.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -45,6 +52,29 @@ pub fn excerpt(s: &str, n: usize) -> String {
         out.push('…');
         out
     }
+}
+
+/// First `n` characters with line breaks kept (an answer shown in the chat), blank runs squeezed.
+pub fn excerpt_lines(s: &str, n: usize) -> String {
+    let mut out = String::new();
+    let mut blank = 0;
+    for line in s.trim().lines() {
+        let line = line.trim_end();
+        blank = if line.trim().is_empty() { blank + 1 } else { 0 };
+        if blank > 1 {
+            continue;
+        }
+        if !out.is_empty() {
+            out.push('\n');
+        }
+        out.push_str(line);
+    }
+    if out.chars().count() <= n {
+        return out;
+    }
+    let mut cut: String = out.chars().take(n.saturating_sub(1)).collect();
+    cut.push('…');
+    cut
 }
 
 fn base_name(p: &str) -> String {
@@ -94,11 +124,11 @@ pub fn codex_activity(line: &str, ts: i64, cwd: Option<&str>) -> Vec<Activity> {
     match (ty, pty) {
         ("event_msg", "task_complete") => {
             let msg = p.get("last_agent_message").and_then(|x| x.as_str()).unwrap_or("");
-            out.push(Activity::new(ts, "done", excerpt(msg, 1200), None));
+            out.push(Activity::new(ts, "done", excerpt_lines(msg, 1200), None));
         }
         ("event_msg", "user_message") => {
             if let Some(m) = p.get("message").and_then(|x| x.as_str()) {
-                out.push(Activity::new(ts, "prompt", excerpt(m, 300), None));
+                out.push(Activity::new(ts, "prompt", excerpt(&clean_prompt(m), 300), None));
             }
         }
         ("event_msg", "item_completed") => {
@@ -382,7 +412,9 @@ mod tests {
     #[test]
     fn codex_rollout_activity() {
         let done = r#"{"timestamp":"t","type":"event_msg","payload":{"type":"task_complete","last_agent_message":"Fixed the test.\nAll green."}}"#;
-        assert_eq!(codex_activity(done, 5, None), vec![Activity::new(5, "done", "Fixed the test. All green.", None)]);
+        assert_eq!(codex_activity(done, 5, None), vec![Activity::new(5, "done", "Fixed the test.\nAll green.", None)]);
+        assert_eq!(excerpt_lines("  **Done**\n\n\n\n- a  \n- b\n", 100), "**Done**\n\n- a\n- b");
+        assert_eq!(excerpt_lines("abcdef", 4), "abc…");
         let exec = r#"{"type":"response_item","payload":{"type":"custom_tool_call","name":"exec","input":"text(await tools.exec_command({cmd:\"npm test -- --run\"}))"}}"#;
         assert_eq!(codex_activity(exec, 1, None)[0].text, "Running npm test -- --run");
         let patch = r#"{"type":"response_item","payload":{"type":"custom_tool_call","name":"apply_patch","input":"*** Begin Patch\n*** Update File: src/app.ts\n@@\n*** Add File: docs/x.md\n*** End Patch"}}"#;

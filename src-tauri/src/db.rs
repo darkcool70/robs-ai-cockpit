@@ -257,24 +257,58 @@ pub const MIGRATIONS: &[&str] = &[
     ALTER TABLE accounts ADD COLUMN auth_email TEXT;
     ALTER TABLE accounts ADD COLUMN auth_org TEXT;
     "#,
+    // goals: a third automation mode driven by a supervisor model
+    WIDEN_AUTOMATION_MODE_CHECK,
+    r#"
+    ALTER TABLE automations ADD COLUMN goal TEXT;
+    ALTER TABLE automations ADD COLUMN progress INTEGER;
+    ALTER TABLE automations ADD COLUMN log TEXT;
+    ALTER TABLE automations ADD COLUMN pending TEXT;
+    CREATE TABLE assistants (
+        id                    TEXT PRIMARY KEY,
+        name                  TEXT NOT NULL,
+        avatar                TEXT NOT NULL,
+        color                 TEXT,
+        soul                  TEXT NOT NULL DEFAULT '',
+        agent_md              TEXT NOT NULL DEFAULT '',
+        account_id            TEXT,
+        model                 TEXT,
+        autonomy              TEXT,
+        project_id            TEXT,
+        goal                  TEXT NOT NULL DEFAULT '',
+        criteria              TEXT,
+        supervisor_account_id TEXT,
+        supervisor_model      TEXT,
+        max_rounds            INTEGER NOT NULL DEFAULT 20,
+        delay_sec             INTEGER NOT NULL DEFAULT 5,
+        session_id            TEXT,
+        sort                  INTEGER NOT NULL DEFAULT 0,
+        created_at            TEXT NOT NULL,
+        updated_at            TEXT NOT NULL
+    );
+    "#,
 ];
 
 const WIDEN_PROVIDER_CHECK: &str = "@@widen_provider_check";
+const WIDEN_AUTOMATION_MODE_CHECK: &str = "@@widen_automation_mode_check";
 
 /// SQLite cannot ALTER a CHECK constraint. The documented way for a change that keeps all
 /// existing rows valid is to edit the stored CREATE statement (writable_schema) and bump
 /// schema_version — no table rebuild, so foreign keys from sessions stay untouched.
 /// https://sqlite.org/lang_altertable.html#otheralter
 fn widen_provider_check(tx: &rusqlite::Transaction) -> AppResult<()> {
-    let sql: String = tx.query_row("SELECT sql FROM sqlite_master WHERE type='table' AND name='accounts'", [], |r| r.get(0))?;
-    let old = "CHECK (provider IN ('claude','codex'))";
+    widen_check(tx, "accounts", "CHECK (provider IN ('claude','codex'))", "CHECK (provider IN ('claude','codex','custom'))")
+}
+
+fn widen_check(tx: &rusqlite::Transaction, table: &str, old: &str, new: &str) -> AppResult<()> {
+    let sql: String = tx.query_row("SELECT sql FROM sqlite_master WHERE type='table' AND name=?1", [table], |r| r.get(0))?;
     if !sql.contains(old) {
         return Ok(()); // already widened (or created without the check)
     }
-    let new_sql = sql.replace(old, "CHECK (provider IN ('claude','codex','custom'))");
+    let new_sql = sql.replace(old, new);
     let version: i64 = tx.query_row("PRAGMA schema_version", [], |r| r.get(0))?;
     tx.execute_batch("PRAGMA writable_schema = ON")?;
-    tx.execute("UPDATE sqlite_master SET sql=?1 WHERE type='table' AND name='accounts'", [&new_sql])?;
+    tx.execute("UPDATE sqlite_master SET sql=?1 WHERE type='table' AND name=?2", [&new_sql, table])?;
     tx.execute_batch(&format!("PRAGMA schema_version = {}", version + 1))?;
     tx.execute_batch("PRAGMA writable_schema = OFF")?;
     Ok(())
@@ -290,6 +324,8 @@ pub fn migrate(conn: &mut Connection) -> AppResult<()> {
         let tx = conn.transaction()?;
         if *sql == WIDEN_PROVIDER_CHECK {
             widen_provider_check(&tx)?;
+        } else if *sql == WIDEN_AUTOMATION_MODE_CHECK {
+            widen_check(&tx, "automations", "CHECK (mode IN ('queue','loop'))", "CHECK (mode IN ('queue','loop','goal'))")?;
         } else {
             tx.execute_batch(sql)?;
         }

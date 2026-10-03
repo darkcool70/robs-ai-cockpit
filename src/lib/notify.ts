@@ -5,6 +5,10 @@ import { api, type HudNote, type Session } from "./api";
 import { useApp } from "../store";
 import { toggleDictation, voiceChoices } from "./voice";
 import { duration } from "./format";
+import { assistantOf } from "./assistants";
+
+/** Face animation in the pop-up for each kind of notice. */
+const MOOD: Record<HudNote["kind"], string> = { done: "waiting", input: "waiting", limit: "blocked", loop: "done", failed: "blocked", goal: "done" };
 
 const lastStatus: Record<string, string | undefined> = {};
 const lastNotice: Record<string, string | null | undefined> = {};
@@ -50,15 +54,19 @@ async function send(s: Session, kind: HudNote["kind"], message: string) {
   const key = `${s.id}:${kind}`;
   if (Date.now() - (lastSent[key] ?? 0) < 4000) return;
   lastSent[key] = Date.now();
+  const asst = assistantOf(st.assistants, s.id);
   const note: HudNote = {
     id: `${key}:${Date.now()}`,
     sessionId: s.id,
     kind,
-    title: s.name,
+    title: asst?.name ?? s.name,
     subtitle: subtitleOf(s),
     message,
     provider: s.provider,
     at: Date.now(),
+    avatar: asst?.avatar ?? null,
+    color: asst?.color ?? null,
+    mood: asst ? MOOD[kind] : null,
   };
   const focused = hasFocus();
   trace(`${kind} ${s.name} focused=${focused} popup=${shouldPopup(s, st, focused)}`);
@@ -116,6 +124,7 @@ export function label(kind: HudNote["kind"]): string {
     limit: "usage limit reached",
     loop: "loop finished",
     failed: "ended with an error",
+    goal: "goal reached",
   }[kind];
 }
 
@@ -143,7 +152,8 @@ function onSessions() {
       continue;
     }
     if (before === "working" && cur === "waiting-for-input") {
-      void send(s, rt?.notice ? "input" : "done", rt?.notice ?? rt?.lastMessage ?? "");
+      // A running loop or goal goes on by itself: only its end (or a question) is worth a pop-up.
+      if (rt?.notice || rt?.automation?.state !== "running") void send(s, rt?.notice ? "input" : "done", rt?.notice ?? rt?.lastMessage ?? "");
     } else if (cur === "rate-limited" && before !== "rate-limited") {
       const when = rt?.autoContinueAt ? ` Continues automatically.` : "";
       void send(s, "limit", `${rt?.attention ?? "Usage limit reached."}${when}`);
@@ -156,7 +166,10 @@ function onSessions() {
     lastNotice[s.id] = rt?.notice;
     const loopState = rt?.automation?.state;
     if (loopState === "done" && lastLoopState[s.id] === "running") {
-      void send(s, "loop", `${rt?.automation?.name}: ${rt?.automation?.note ?? "finished"}`);
+      const goal = rt?.automation?.mode === "goal";
+      void send(s, goal ? "goal" : "loop", goal ? rt?.automation?.note?.replace(/^Goal reached:\s*/, "") ?? "" : `${rt?.automation?.name}: ${rt?.automation?.note ?? "finished"}`);
+    } else if (loopState === "paused" && lastLoopState[s.id] === "running" && rt?.automation?.note?.startsWith("Needs you")) {
+      void send(s, "input", rt.automation.note.replace(/^Needs you:\s*/, ""));
     }
     lastLoopState[s.id] = loopState;
   }

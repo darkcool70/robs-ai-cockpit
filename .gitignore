@@ -29,3 +29,6 @@ src-tauri/gen/schemas/
 *.db
 artifacts/
 *.lnk
+
+# Pro edition: a separate private repository checked out here (see docs/PRO.md)
+/pro/

@@ -18,8 +18,14 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true
+    "noFallthroughCasesInSwitch": true,
+
+    /* Pro edition: ./pro/src when the private repo is checked out, else the public stubs */
+    "paths": {
+      "@app/*": ["./src/*"],
+      "@pro/*": ["./pro/src/*", "./src/pro-stub/*"]
+    }
   },
-  "include": ["src"],
+  "include": ["src", "pro/src"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

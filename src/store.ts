@@ -5,6 +5,8 @@ import {
   errMsg,
   type Account,
   type Activity,
+  type Assistant,
+  type ProStatus,
   type AppInfo,
   type CliInfo,
   type Project,
@@ -53,7 +55,7 @@ const startedAt: Record<string, number> = {};
 /** Last automatic account switch per session (avoid ping-pong between exhausted accounts). */
 const failoverAt: Record<string, number> = {};
 
-export type View = "overview" | "workspace" | "tasks" | "review" | "pins" | "loops" | "accounts" | "history" | "usage" | "security" | "settings";
+export type View = "overview" | "workspace" | "assistants" | "tasks" | "review" | "pins" | "loops" | "accounts" | "history" | "usage" | "security" | "settings";
 export type LayoutMode = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "tabs";
 
 export const MAX_PANES = 8;
@@ -136,6 +138,14 @@ interface State {
   /** Pane shown alone (focus mode); the others keep running. */
   zoomed: number | null;
   tasks: Task[];
+  assistants: Assistant[];
+  /** Assistant whose room is open in the Assistants view. */
+  assistantOpen: string | null;
+  refreshAssistants: () => Promise<void>;
+  /** Pro license; null in the open-source build. */
+  pro: ProStatus | null;
+  refreshPro: () => Promise<void>;
+  openAssistant: (id: string | null) => void;
   cheatsheetOpen: boolean;
   tourOpen: boolean;
   setTourOpen: (open: boolean) => void;
@@ -326,6 +336,25 @@ export const useApp = create<State>((set, get) => ({
   drag: null,
   zoomed: null,
   tasks: [],
+  assistants: [],
+  assistantOpen: null,
+  refreshAssistants: async () => {
+    try {
+      set({ assistants: await api.assistantsList() });
+    } catch {
+      /* keep */
+    }
+  },
+  openAssistant: (assistantOpen) => set({ assistantOpen, view: "assistants" }),
+  pro: null,
+  refreshPro: async () => {
+    if (!__PRO__) return;
+    try {
+      set({ pro: await api.proStatus() });
+    } catch {
+      /* keep */
+    }
+  },
   cheatsheetOpen: false,
   tourOpen: false,
   setTourOpen: (tourOpen) => set({ tourOpen, cheatsheetOpen: false }),
@@ -500,6 +529,10 @@ export const useApp = create<State>((set, get) => ({
     window.setInterval(() => void get().refreshQuota(), 20_000);
     set({ ready: true });
     void get().refreshTasks();
+    void get().refreshAssistants();
+    void get().refreshPro();
+    // The license refreshes itself in the background; pick up its state now and then.
+    window.setInterval(() => void get().refreshPro(), 30 * 60_000);
     // Login state in the background, so the status bar is right without opening Accounts.
     void get().checkAllAccounts();
     window.setInterval(() => void get().checkAllAccounts(), 15 * 60_000);

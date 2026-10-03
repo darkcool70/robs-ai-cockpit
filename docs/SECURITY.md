@@ -101,6 +101,13 @@ traffic it causes is opt-in and started by you:
 | Phone push | HTTPS POST of agent name + a short answer excerpt to the push URL *you* configure (e.g. ntfy) |
 | Phone remote | local HTTP server in your home network, protected by a random secret key; off by default |
 | Update from source | `git fetch` / `git pull` of the repository the app was built from |
+| Pro license (official download) | license key + random device id to the license server when you activate and about once a day ([PRO.md](PRO.md)) |
+
+Goals and assistants start a **supervisor**: a one-shot `claude -p` / `codex exec` call with a
+small model and your own login, run in the background from `~/.ai-cockpit/run/supervisor`. It
+gets the goal, the recent instructions and the agent's last answer via stdin. It has no tools
+(Claude: one turn, edit/shell tools disallowed; Codex: read-only sandbox) and writes nothing to
+the project.
 
 The CLIs you run (`claude`, `codex`, …) of course talk to their providers — that is their own
 traffic, not the cockpit's. Build time: `pnpm` / `cargo` download dependencies. WebView2 is the

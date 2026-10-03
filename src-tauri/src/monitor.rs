@@ -137,11 +137,22 @@ pub struct AutomationView {
     pub sent: i64,
     pub total: Option<i64>,
     pub note: Option<String>,
+    /// Mode "goal": supervisor's progress estimate, 0–100.
+    pub progress: Option<i64>,
 }
 
 impl AutomationView {
     pub fn of(a: &crate::automation::Automation) -> Self {
-        AutomationView { id: a.id.clone(), name: a.name.clone(), mode: a.mode.clone(), state: a.state.clone(), sent: a.sent(), total: a.total(), note: a.note.clone() }
+        AutomationView {
+            id: a.id.clone(),
+            name: a.name.clone(),
+            mode: a.mode.clone(),
+            state: a.state.clone(),
+            sent: a.sent(),
+            total: a.total(),
+            note: a.note.clone(),
+            progress: a.progress,
+        }
     }
 }
 
@@ -189,7 +200,26 @@ pub struct Runtime {
     last_db_touch: i64,
     /// Detection time of the last limit message recorded as a quota snapshot.
     limit_recorded: Option<i64>,
+    /// Text typed by the cockpit that still has to be confirmed as submitted.
+    submit_check: Option<SubmitCheck>,
+    /// A goal supervisor is evaluating the last answer (background CLI call).
+    pub supervising: bool,
 }
+
+/// Typed text only counts as sent once the CLI starts working on it. If it still sits in the
+/// input box a few seconds later (the Enter was taken as part of a paste), press Enter again.
+#[derive(Debug, Clone)]
+struct SubmitCheck {
+    /// When the Enter was pressed (epoch ms).
+    at: i64,
+    /// Start of the text, whitespace-normalised, to find it on screen.
+    probe: String,
+    tries: u8,
+}
+
+const SUBMIT_GRACE_MS: i64 = 3_000;
+const SUBMIT_MAX_TRIES: u8 = 3;
+pub const NOT_SUBMITTED_NOTICE: &str = "Your text is in the input box but was not sent: press Enter in the terminal";
 
 impl Runtime {
     #[allow(clippy::too_many_arguments)]
@@ -258,6 +288,8 @@ impl Runtime {
             },
             last_db_touch: 0,
             limit_recorded: None,
+            submit_check: None,
+            supervising: false,
         }
     }
 }
@@ -376,7 +408,11 @@ fn claude_activity(rt: &mut Runtime, v: &Value, event: &str, ts: i64) {
     use crate::activity::{describe_claude_tool, excerpt, Activity};
     match event {
         "UserPromptSubmit" => {
-            let p = v.get("prompt").and_then(|x| x.as_str()).map(|p| excerpt(p, 300)).unwrap_or_else(|| "Prompt submitted".into());
+            let p = v
+                .get("prompt")
+                .and_then(|x| x.as_str())
+                .map(|p| excerpt(&crate::activity::clean_prompt(p), 300))
+                .unwrap_or_else(|| "Prompt submitted".into());
             apply_activity(rt, Activity::new(ts, "prompt", p, None));
         }
         "PreToolUse" => {
@@ -391,6 +427,8 @@ fn claude_activity(rt: &mut Runtime, v: &Value, event: &str, ts: i64) {
             }
         }
         "PostToolUse" => {
+            // The tool ran, so a permission request for it was answered.
+            rt.view.notice = None;
             let tool = v.get("tool_name").and_then(|x| x.as_str()).unwrap_or("tool");
             let (label, file) = describe_claude_tool(tool, v.get("tool_input").unwrap_or(&Value::Null));
             if let Some(f) = file {
@@ -417,7 +455,7 @@ fn claude_activity(rt: &mut Runtime, v: &Value, event: &str, ts: i64) {
                 .map(str::to_string)
                 .or_else(|| rt.view.transcript_path.as_deref().and_then(|t| crate::activity::claude_last_message(Path::new(t))))
                 .unwrap_or_default();
-            apply_activity(rt, Activity::new(ts, "done", excerpt(&msg, 1200), None));
+            apply_activity(rt, Activity::new(ts, "done", crate::activity::excerpt_lines(&msg, 1200), None));
         }
         _ => {}
     }
@@ -589,16 +627,43 @@ fn setting_string(db: &Db, key: &str) -> Option<String> {
     store::get_setting(&db.0.lock(), key).ok().flatten().and_then(|v| v.as_str().map(str::to_string)).filter(|s| !s.trim().is_empty())
 }
 
-/// Type text into a CLI like a paste followed by Enter.
-pub fn deliver_input(h: &crate::pty::PtyHandle, text: &str) -> crate::error::AppResult<()> {
+/// How long to wait between the text and its Enter. The CLIs treat fast input as a paste and
+/// ignore (or insert) an Enter that arrives while they are still processing it.
+pub fn submit_delay_ms(text: &str) -> u64 {
+    (450 + text.chars().count() as u64 / 4).min(1_800)
+}
+
+/// Type text into a CLI like a paste followed by Enter. Claude Code and Codex get a bracketed
+/// paste (one atomic paste, never mistaken for typed keys); other CLIs get plain keystrokes.
+pub fn deliver_input(h: &crate::pty::PtyHandle, text: &str, provider: Provider) -> crate::error::AppResult<()> {
     let text = text.replace("\r\n", "\n");
-    if text.contains('\n') {
+    if provider != Provider::Custom || text.contains('\n') {
         h.write(format!("\x1b[200~{text}\x1b[201~").as_bytes())?;
     } else {
         h.write(text.as_bytes())?;
     }
-    std::thread::sleep(std::time::Duration::from_millis(180));
+    std::thread::sleep(std::time::Duration::from_millis(submit_delay_ms(&text)));
     h.write(b"\r")
+}
+
+fn squash(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase()
+}
+
+/// The first words of a prompt, as they would appear in the CLI's input box.
+pub fn submit_probe(text: &str) -> String {
+    let first = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("");
+    squash(first).chars().take(32).collect()
+}
+
+/// Whether typed text still sits in the input area (the last lines of the screen).
+pub fn still_in_input(screen: &str, probe: &str) -> bool {
+    if probe.chars().count() < 6 {
+        return false;
+    }
+    let lines: Vec<&str> = screen.lines().filter(|l| !l.trim().is_empty()).collect();
+    let tail = lines[lines.len().saturating_sub(12)..].join(" ");
+    squash(&tail).contains(probe)
 }
 
 /// File changes for CLIs without per-file events (Codex, Claude without hooks): poll git in
@@ -738,10 +803,12 @@ pub fn spawn_monitor(app: AppHandle, db: Arc<Db>, pty: Arc<PtyManager>, runtimes
 
 pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
     let mut to_emit: Vec<RuntimeView> = Vec::new();
-    let mut deliveries: Vec<(Arc<crate::pty::PtyHandle>, String)> = Vec::new();
+    let mut deliveries: Vec<(Arc<crate::pty::PtyHandle>, String, Provider)> = Vec::new();
+    let mut enters: Vec<Arc<crate::pty::PtyHandle>> = Vec::new();
     let mut resume_requests: Vec<(String, String)> = Vec::new();
     let mut new_activity: Vec<(String, crate::activity::Activity)> = Vec::new();
     let mut automation_saves: Vec<crate::automation::Automation> = Vec::new();
+    let mut supervise: Vec<crate::automation::SuperviseJob> = Vec::new();
     let mut rts = runtimes.lock();
     let mut claimed: Vec<PathBuf> = rts.values().filter_map(|r| r.rollout.clone()).collect();
     let now = now_ms();
@@ -893,11 +960,25 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
                     provider_signals: rt.hooks || rt.provider == Provider::Codex,
                     turn_ended_at: rt.view.turn_ended_at,
                     last_message: rt.view.last_message.as_deref(),
+                    supervising: rt.supervising,
+                    started_at: rt.started_ms,
                 };
-                let before = (a.state.clone(), a.step, a.iteration, a.note.clone());
+                let before = (a.state.clone(), a.step, a.iteration, a.note.clone(), a.pending.clone());
                 match decide(&a, &ctx) {
                     Decision::Wait(note) => a.note = note,
+                    Decision::Supervise => {
+                        rt.supervising = true;
+                        a.note = Some("Reviewing the answer…".into());
+                        supervise.push(crate::automation::SuperviseJob {
+                            session_id: rt.id.clone(),
+                            automation: a.clone(),
+                            answer: rt.view.last_message.clone().unwrap_or_default(),
+                            account_id: rt.account_id.clone(),
+                            transcript: (rt.provider == Provider::Claude).then(|| rt.view.transcript_path.clone()).flatten(),
+                        });
+                    }
                     Decision::Send { text, step, iteration } => {
+                        a.pending = None;
                         rt.pending_input = Some(text);
                         a.step = step;
                         a.iteration = iteration;
@@ -912,7 +993,7 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
                         a.note = Some(reason);
                     }
                 }
-                if before != (a.state.clone(), a.step, a.iteration, a.note.clone()) {
+                if before != (a.state.clone(), a.step, a.iteration, a.note.clone(), a.pending.clone()) {
                     automation_saves.push(a.clone());
                 }
                 rt.view.automation = Some(AutomationView::of(&a));
@@ -928,7 +1009,8 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
                 let screen = h.screen_text();
                 if ready_for_input(rt.provider, rt.hooks, rt.session_started, rt.started_ms, out_ms, now, &screen) {
                     if let Some(text) = rt.pending_input.take() {
-                        deliveries.push((h.clone(), text));
+                        rt.submit_check = Some(SubmitCheck { at: now + submit_delay_ms(&text) as i64, probe: submit_probe(&text), tries: 0 });
+                        deliveries.push((h.clone(), text, rt.provider));
                     }
                     if rt.view.notice.as_deref() == Some(DIALOG_NOTICE) {
                         rt.view.notice = None;
@@ -942,6 +1024,26 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
             // Only a finished process drops queued text. (Between registering the runtime
             // and spawning, there is briefly no process yet — that must not lose the task.)
             rt.pending_input = None;
+        }
+        // --- confirm that typed text was really submitted -----------------------------
+        if let Some(chk) = rt.submit_check.clone() {
+            let started = matches!(provider_state, Some((true, t)) if t >= chk.at - 2_000)
+                || rt.view.turn_started_at.is_some_and(|t| t >= chk.at - 2_000)
+                || status == "working";
+            if !running || started || handle.is_none() {
+                rt.submit_check = None;
+            } else if now - chk.at >= SUBMIT_GRACE_MS {
+                let h = handle.as_ref().expect("checked above");
+                if !still_in_input(&h.screen_text(), &chk.probe) {
+                    rt.submit_check = None;
+                } else if chk.tries + 1 >= SUBMIT_MAX_TRIES {
+                    rt.submit_check = None;
+                    rt.view.notice = Some(NOT_SUBMITTED_NOTICE.into());
+                } else {
+                    enters.push(h.clone());
+                    rt.submit_check = Some(SubmitCheck { at: now, tries: chk.tries + 1, ..chk });
+                }
+            }
         }
         rt.view.pending_input = rt.pending_input.is_some();
         let changed = prev.status != rt.view.status
@@ -1014,11 +1116,37 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
     for (id, message) in resume_requests {
         let _ = app.emit("session-auto-resume", serde_json::json!({ "id": id, "message": message }));
     }
-    for (h, text) in deliveries {
+    for (h, text, provider) in deliveries {
         std::thread::spawn(move || {
-            let _ = deliver_input(&h, &text);
+            let _ = deliver_input(&h, &text, provider);
         });
     }
+    for job in supervise {
+        crate::supervise(app.clone(), job);
+    }
+    for h in enters {
+        let _ = h.write(b"\r");
+    }
+}
+
+/// End a running goal or loop with a note (runtime, database and UI), e.g. when its supervisor
+/// is not available. Does nothing if the user paused or changed it meanwhile.
+pub fn pause_automation(app: &AppHandle, db: &Db, runtimes: &Runtimes, session_id: &str, automation_id: &str, note: &str) {
+    let saved = {
+        let mut rts = runtimes.lock();
+        let Some(rt) = rts.get_mut(session_id) else { return };
+        rt.supervising = false;
+        let Some(mut a) = rt.automation.take().filter(|a| a.id == automation_id && a.state == "running") else { return };
+        a.state = "paused".into();
+        a.note = Some(note.to_string());
+        rt.view.automation = Some(AutomationView::of(&a));
+        (a, rt.view.clone())
+    };
+    let ok = crate::automation::save_progress(&db.0.lock(), &saved.0).unwrap_or(false);
+    if ok {
+        let _ = app.emit("automation-changed", &saved.0);
+    }
+    let _ = app.emit("session-runtime", &saved.1);
 }
 
 fn detection_ts(h: &Option<Arc<crate::pty::PtyHandle>>) -> Option<i64> {
@@ -1069,6 +1197,12 @@ mod tests {
         assert_eq!(rt.view.notice, None);
         claude_activity(&mut rt, &serde_json::json!({"message": "Claude needs your permission to use Bash"}), "Notification", 6);
         assert_eq!(rt.view.notice.as_deref(), Some("Claude needs your permission to use Bash"));
+        // Approved: the tool ran, the request is gone.
+        claude_activity(&mut rt, &serde_json::json!({"tool_name": "Bash", "tool_input": {"command": "npm test"}}), "PostToolUse", 7);
+        assert_eq!(rt.view.notice, None);
+        // Pasted prompts are shown without the CLI's paste markers.
+        claude_activity(&mut rt, &serde_json::json!({"prompt": "<pasted_content id=\"a1\">GOAL: ship it</pasted_content>"}), "UserPromptSubmit", 8);
+        assert_eq!(rt.view.last_prompt.as_deref(), Some("GOAL: ship it"));
     }
 
     #[test]
@@ -1126,6 +1260,23 @@ mod tests {
         assert!(!ok(Provider::Codex, false, false, 97_000, "> 1. Sign in with ChatGPT\n  2. Sign in with Device Code"));
         // Enter on Codex's update prompt would run `npm install -g`: never type into it.
         assert!(!ok(Provider::Codex, false, false, 97_000, "› Ask Codex to do anything\n  Update available · 0.157.1 → 0.159.2\n› 1. Update now (runs `npm install -g @openai/codex`)\n  2. Skip"));
+    }
+
+    #[test]
+    fn typed_text_is_found_in_the_input_box_only() {
+        let probe = submit_probe("  Review src/server.js for bugs and missing input validation.
+Then run npm test.");
+        assert_eq!(probe, "review src/server.js for bugs an");
+        let codex = "header
+
+› Review src/server.js for bugs and missing input
+  validation. Then run npm test.
+
+  gpt-6 medium · C:/demo";
+        assert!(still_in_input(codex, &probe), "wrapped text in the composer");
+        assert!(!still_in_input("› Ask Codex to do anything", &probe));
+        assert!(!still_in_input("anything", "ok"), "too short to be sure");
+        assert!(submit_delay_ms("hi") >= 450 && submit_delay_ms(&"x".repeat(50_000)) == 1_800);
     }
 
     fn base() -> StatusInputs {

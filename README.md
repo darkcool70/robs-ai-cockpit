@@ -44,6 +44,24 @@ type, scroll, copy and paste as usual. The pane header shows the account, model,
 live status and context use. Drag sessions between panes, focus one with a double-click, and
 hidden sessions keep running.
 
+### Assistants that pursue a goal on their own · *Pro*
+<img src="docs/images/assistant-room.png" alt="Pixel the fox working toward a goal: chat with supervisor notes, progress, live terminal" width="100%" />
+
+Build your own AI team. An assistant has:
+* a **face**: one of 8 animated characters or your own picture. It reacts to what the assistant
+  is doing (working, thinking, waiting for you, goal reached).
+* a **personality** (`soul.md`) and **working agreements** (`agent.md`).
+* **its own terminal**.
+
+Give it a **goal** and it works on it by itself. After every step a small **supervisor model**
+(Claude Haiku or a small Codex model, with your own login, no API key) reads the answer, rates
+the progress and writes the next instruction. This continues until the goal is reached, it needs
+you, or the round limit is hit. Each assistant has its own room: a chat with its answers, your
+messages and the supervisor's notes, plus the live terminal next to it. You can answer
+permission requests right in the chat, and notifications show the assistant's face.
+
+<img src="docs/images/assistants.png" alt="Assistant gallery with animated characters" width="100%" />
+
 ### Pop-ups the moment an agent needs you
 <img src="docs/images/notifications.png" alt="Heads-up notifications with the agent's last answer and a reply box" width="100%" />
 
@@ -144,9 +162,14 @@ at the right moment. You can see it in the top-left pane above: *rate limited ·
   * pins with notes
   * a light theme and a font size per pane
   * updating from source
-* **Loops & templates**: prompt queues (each prompt is sent once, when the agent has finished the
-  previous one) and loops (N rounds, or until a stop phrase). You can pause, stop and reset them.
-  A prompt template library is also available in the command palette.
+* **Assistants**: named agents with an animated face or your own picture, soul.md, agent.md, a
+  goal, their own terminal and a chat room. Permission requests can be answered in the chat.
+* **Loops, goals & templates**:
+  * prompt queues: each prompt is sent once, when the agent has finished the previous one.
+  * loops: N rounds, or until a stop phrase.
+  * goals (Pro): a supervisor model writes every next prompt until the goal is reached.
+  * You can pause, stop and reset them.
+  * A prompt template library is also available in the command palette.
 * **Accounts**: any number of Claude / Codex profiles, grouped by provider. Logins run the CLI's
   own flow in a fresh private browser window. Login state is re-checked in the background.
 * **Session options**:
@@ -186,6 +209,17 @@ at the right moment. You can see it in the top-left pane above: *rate limited ·
   * `Ctrl+Shift+C/V` copy/paste in terminals
 
 </details>
+
+## Robs AI Cockpit Pro
+
+Assistants and goals are **Pro** features of the official download:
+* **7 days free**, no account and no card needed.
+* After that, a **monthly or yearly subscription**: buy it in the app (Settings → Pro) and
+  paste the license key.
+* The rest of the cockpit stays free and open source.
+
+Building from source gives the open-source edition without Pro. How the open-core split works:
+[docs/PRO.md](docs/PRO.md).
 
 ## Installation
 
@@ -232,7 +266,8 @@ Prerequisites (Node 22+, pnpm 10, Rust stable, Visual Studio Build Tools) and de
 * API-key environment variables are stripped from every spawned CLI, so your subscription logins
   are used and you are never billed per token by accident.
 * The only network traffic the cockpit itself causes is opt-in: the voice model download, phone
-  push and phone remote. See [docs/SECURITY.md](docs/SECURITY.md).
+  push and phone remote, plus, in Pro, the license check. The license check sends only the key and a
+  random device id. See [docs/SECURITY.md](docs/SECURITY.md).
 
 ## Documentation
 
@@ -244,6 +279,7 @@ Prerequisites (Node 22+, pnpm 10, Rust stable, Visual Studio Build Tools) and de
 | [USAGE_ANALYTICS](docs/USAGE_ANALYTICS.md) | parsers, dedup, quota sources |
 | [STABILITY](docs/STABILITY.md) | lifecycle guarantees, login isolation, verification |
 | [DEVELOPMENT](docs/DEVELOPMENT.md) | setup, tests, conventions |
+| [PRO](docs/PRO.md) | open core: what Pro is, how it is built and licensed |
 
 ## Contributing
 
