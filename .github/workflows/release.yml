@@ -38,7 +38,7 @@ jobs:
           token: ${{ secrets.PRO_REPO_TOKEN }}
           path: pro
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
 
       - uses: actions/setup-node@v4
         with:
