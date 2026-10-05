@@ -246,7 +246,7 @@ async function swapSort(list: Task[], i: number, dir: -1 | 1) {
 }
 
 /** New agent in its own git worktree for this task (no conflicts with other agents). */
-async function startInWorktree(t: Task, accountId: string) {
+export async function startInWorktree(t: Task, accountId: string) {
   const st = useApp.getState();
   const projectId = t.projectId ?? st.activeProjectId;
   const project = st.projects.find((p) => p.id === projectId);

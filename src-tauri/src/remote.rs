@@ -77,7 +77,16 @@ impl Remote {
                         let _ = stream.set_nonblocking(false);
                         let (db, rts, key) = (db.clone(), runtimes.clone(), key.clone());
                         std::thread::spawn(move || {
+                            let closer = stream.try_clone().ok();
                             let _ = handle(stream, &db, &rts, &key);
+                            // Close gracefully: send FIN, then drain. Dropping a socket with unread
+                            // bytes makes Windows send a reset, and the phone loses the response.
+                            if let Some(mut c) = closer {
+                                let _ = c.shutdown(std::net::Shutdown::Write);
+                                let _ = c.set_read_timeout(Some(Duration::from_millis(300)));
+                                let mut buf = [0u8; 512];
+                                while matches!(c.read(&mut buf), Ok(n) if n > 0) {}
+                            }
                         });
                     }
                     Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => std::thread::sleep(Duration::from_millis(150)),

@@ -119,6 +119,15 @@ pub fn run() {
     let stt_exit = stt.clone();
 
     tauri::Builder::default()
+        // Must come first: a second start only brings the running window to the front. Two
+        // cockpits on one database would run loops twice and fight over the voice shortcuts.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            if let Some(w) = app.get_webview_window("main") {
+                let _ = w.unminimize();
+                let _ = w.show();
+                let _ = w.set_focus();
+            }
+        }))
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())

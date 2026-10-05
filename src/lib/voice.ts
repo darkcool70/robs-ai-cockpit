@@ -30,6 +30,49 @@ export function altGrConflict(h: string | null | undefined): string | null {
 }
 const TAP_MS = 350;
 
+/** Keys a system-wide shortcut would take away from every program (typing, copy/paste…). */
+const EDITING_KEYS = new Set(["KeyA", "KeyC", "KeyV", "KeyX", "KeyZ", "KeyY", "KeyS", "KeyF", "KeyN", "KeyT", "KeyW", "KeyP", "KeyO", "KeyR"]);
+
+/** Why a shortcut is a bad idea, or null. Voice shortcuts work system-wide, in every program. */
+export function hotkeyProblem(h: string | null | undefined): string | null {
+  if (!h) return null;
+  const parts = h.split("+");
+  const key = parts[parts.length - 1];
+  const mods = parts.slice(0, -1);
+  const pretty = prettyHotkey(h);
+  const ch = altGrConflict(h);
+  if (ch) return `${pretty} is AltGr+${pretty.split(" + ").pop()} on a German keyboard ("${ch}"): you could no longer type it. Choose another.`;
+  const typing = /^(Key[A-Z]|Digit\d|Minus|Equal|Bracket\w+|Semicolon|Quote|Backquote|Backslash|Comma|Period|Slash|IntlBackslash|Space)$/.test(key);
+  if (typing && mods.every((m) => m === "Shift")) return `${pretty} would stop you from typing "${pretty.split(" + ").pop()}" in every program. Add Ctrl or Alt.`;
+  if (mods.length === 1 && mods[0] === "Control" && EDITING_KEYS.has(key)) {
+    return `${pretty} is a standard shortcut (select all, copy, paste, save…) and would stop working in every program. Try Alt + Shift + Space or Ctrl + Alt + Space.`;
+  }
+  return null;
+}
+
+/**
+ * Notices the end of speech from the level meter (one RMS value every ~80 ms): learns the room's
+ * noise floor, waits until you have spoken, then reports true after `silenceMs` of quiet.
+ */
+export function silenceDetector(silenceMs = 1500, frameMs = 80) {
+  let frames = 0;
+  let floor = Infinity;
+  let spoken = 0;
+  let quiet = 0;
+  return (level: number): boolean => {
+    frames++;
+    if (frames <= 5) floor = Math.min(floor, level); // first ~0.4 s: background noise
+    const threshold = Math.max(0.012, (Number.isFinite(floor) ? floor : 0) * 3);
+    if (level >= threshold) {
+      spoken++;
+      quiet = 0;
+    } else if (spoken >= 3) {
+      quiet++;
+    }
+    return spoken >= 3 && quiet * frameMs >= silenceMs;
+  };
+}
+
 export type VoiceState = "idle" | "recording" | "transcribing";
 export interface Voice {
   state: VoiceState;
@@ -451,9 +494,13 @@ async function onShortcut(target: string, ev: ShortcutEvent) {
   }
 }
 
+let endOfSpeech: ((level: number) => boolean) | null = null;
+
 export async function startDictation(id: string) {
   const st = useApp.getState();
   if (st.voice.state !== "idle") return;
+  const silence = Number(st.settings.voiceSilenceMs ?? 1500);
+  endOfSpeech = st.settings.voiceStopOnSilence === false ? null : silenceDetector(silence > 0 ? silence : 1500);
   st.setVoice({ state: "recording", target: id, level: 0 });
   try {
     await api.sttStart(id);
@@ -485,17 +532,35 @@ export async function cancelDictation() {
   if (hotkeysDirty) void syncHotkeys();
 }
 
+let transcription = 0; // id of the transcription in progress; Esc sets `discarded` to it
+let discarded = -1;
+
+/** Esc while transcribing: drop the result, nothing is typed. */
+export function discardTranscription() {
+  const st = useApp.getState();
+  if (st.voice.state !== "transcribing") return;
+  discarded = transcription;
+  st.setVoice({ state: "idle", target: null, level: 0 });
+  st.toast("🎤 Dictation discarded", "info");
+  void unregister("Escape").catch(() => {});
+  if (hotkeysDirty) void syncHotkeys();
+}
+
 /** `send`: press Enter afterwards (Enter pressed while recording). */
 export async function stopDictation(send = false) {
   const st = useApp.getState();
   if (st.voice.state !== "recording") return;
+  const job = ++transcription;
   // The target may have been switched while recording (1–8 / arrows).
   const chosen = st.voice.target;
   st.setVoice({ ...st.voice, state: "transcribing", level: 0 });
   cue("stop");
-  void disarmPicker();
+  // Esc stays armed while Whisper works, so you can still take it back (also from other programs).
+  await disarmPicker();
+  await register("Escape", (ev: ShortcutEvent) => { if (ev.state === "Pressed") discardTranscription(); }).catch(() => {});
   try {
     const r = await api.sttStop();
+    if (discarded === job) return;
     const target = chosen && useApp.getState().sessions[chosen] ? chosen : r.target;
     const control = r.text && useApp.getState().settings.voiceCommands !== false ? parseControl(r.text) : null;
     if (control) {
@@ -512,9 +577,11 @@ export async function stopDictation(send = false) {
   } catch (e) {
     useApp.getState().toast(`Dictation failed: ${errMsg(e)}`, "error");
   } finally {
-    useApp.getState().setVoice({ state: "idle", target: null, level: 0 });
-    await disarmPicker();
-    if (hotkeysDirty) void syncHotkeys();
+    await unregister("Escape").catch(() => {});
+    if (discarded !== job) {
+      useApp.getState().setVoice({ state: "idle", target: null, level: 0 });
+      if (hotkeysDirty) void syncHotkeys();
+    }
   }
 }
 
@@ -546,12 +613,22 @@ export async function initVoice() {
   listening = true;
   await listen<{ level: number }>("stt-level", (ev) => {
     const v = useApp.getState().voice;
-    if (v.state === "recording") useApp.getState().setVoice({ ...v, level: ev.payload.level });
+    if (v.state !== "recording") return;
+    useApp.getState().setVoice({ ...v, level: ev.payload.level });
+    // Finished speaking: stop by itself (and send, if "Press Enter after every dictation" is on).
+    if (endOfSpeech?.(ev.payload.level)) {
+      endOfSpeech = null;
+      void stopDictation();
+    }
   });
   window.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && useApp.getState().voice.state === "recording") {
+    const state = useApp.getState().voice.state;
+    if (e.key === "Escape" && state === "recording") {
       e.preventDefault();
       void cancelDictation();
+    } else if (e.key === "Escape" && state === "transcribing") {
+      e.preventDefault();
+      discardTranscription();
     }
   }, true);
   useApp.subscribe((st, prev) => {

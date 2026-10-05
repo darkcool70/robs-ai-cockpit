@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
-import { Bot, ChevronRight, GitBranch, GitCommitHorizontal, RefreshCw } from "lucide-react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { Bot, ChevronRight, FolderPlus, GitBranch, GitCommitHorizontal, RefreshCw } from "lucide-react";
 import { useApp } from "../store";
 import { api, errMsg, type RecentFile, type Review } from "../lib/api";
 import { compact } from "../lib/format";
@@ -89,11 +90,20 @@ export function ReviewView() {
     if (ok) toast(`${sessions[id]?.name} commits the changes`, "ok");
   };
 
+  const addRepo = async () => {
+    const picked = await openDialog({ directory: true, title: "Pick a repository folder" });
+    if (typeof picked !== "string") return;
+    await useApp.getState().addProject(picked);
+    setDir(picked);
+  };
+
   const s = review?.status;
   return (
     <div className="flex h-full min-h-0">
       <aside className="w-[240px] shrink-0 overflow-auto border-r border-line bg-panel p-2">
         <div className="px-1 pb-1 text-[11px] font-semibold tracking-wider text-muted uppercase">Repositories</div>
+        <p className="px-1 pb-2 text-[11px] text-faint">Your projects and every folder an agent works in show up here automatically.</p>
+        <Button size="sm" className="mb-2 w-full" onClick={() => void addRepo()}><FolderPlus size={12} /> Add repository…</Button>
         {dirs.map((d) => (
           <button
             key={d.path}
@@ -124,7 +134,17 @@ export function ReviewView() {
           <Button className="ml-auto" size="sm" onClick={() => void load()} disabled={loading}><RefreshCw size={12} /> Refresh</Button>
         </div>
         <div className="min-h-0 flex-1 overflow-auto p-4">
-          {error && <Card className="p-4 text-[12.5px] text-err">{error}</Card>}
+          {error && (
+            <Card className="space-y-1 p-4 text-[12.5px]">
+              <p className="text-err">{error}</p>
+              {/not a git repository/i.test(error) && (
+                <p className="text-muted">This folder has no git history yet. Ask an agent to run <code>git init</code> and make a first commit, or pick another folder.</p>
+              )}
+            </Card>
+          )}
+          {!dir && !dirs.length && (
+            <Card className="p-8"><Empty>No repository yet. Click “Add repository…” and pick the folder of your project (the one that contains <code>.git</code>).</Empty></Card>
+          )}
           {!error && review && s && s.files.length === 0 && <Card className="p-8"><Empty>No uncommitted changes — everything is committed.</Empty></Card>}
           {!error && review && (
             <div className="space-y-2">

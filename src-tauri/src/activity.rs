@@ -55,6 +55,9 @@ pub fn excerpt(s: &str, n: usize) -> String {
 }
 
 /// First `n` characters with line breaks kept (an answer shown in the chat), blank runs squeezed.
+/// How much of an agent's final answer is kept (chat view, task proposals of assistants).
+pub const ANSWER_CHARS: usize = 6000;
+
 pub fn excerpt_lines(s: &str, n: usize) -> String {
     let mut out = String::new();
     let mut blank = 0;
@@ -124,7 +127,7 @@ pub fn codex_activity(line: &str, ts: i64, cwd: Option<&str>) -> Vec<Activity> {
     match (ty, pty) {
         ("event_msg", "task_complete") => {
             let msg = p.get("last_agent_message").and_then(|x| x.as_str()).unwrap_or("");
-            out.push(Activity::new(ts, "done", excerpt_lines(msg, 1200), None));
+            out.push(Activity::new(ts, "done", excerpt_lines(msg, crate::activity::ANSWER_CHARS), None));
         }
         ("event_msg", "user_message") => {
             if let Some(m) = p.get("message").and_then(|x| x.as_str()) {

@@ -5,7 +5,7 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn() }));
 vi.mock("./api", () => ({ api: {}, errMsg: String }));
 vi.mock("../store", () => ({ useApp: { getState: vi.fn(), subscribe: vi.fn() } }));
 
-const { hotkeyFromEvent, prettyHotkey, altGrConflict, routeSpoken, parseControl } = await import("./voice");
+const { hotkeyFromEvent, prettyHotkey, altGrConflict, hotkeyProblem, silenceDetector, routeSpoken, parseControl } = await import("./voice");
 
 describe("addressing a session by name", () => {
   const cands = [
@@ -46,6 +46,18 @@ describe("voice shortcuts", () => {
     expect(altGrConflict("Control+Shift+Digit9")).toBeNull();
     expect(altGrConflict("Alt+Shift+Space")).toBeNull();
   });
+
+  it("rejects shortcuts that would break typing or editing in every program", () => {
+    expect(hotkeyProblem("Shift+KeyA")).toMatch(/typing/);
+    expect(hotkeyProblem("Shift+Digit1")).toMatch(/typing/);
+    expect(hotkeyProblem("Control+KeyA")).toMatch(/standard shortcut/);
+    expect(hotkeyProblem("Control+KeyV")).toMatch(/standard shortcut/);
+    expect(hotkeyProblem("Control+Alt+KeyQ")).toMatch(/AltGr/);
+    expect(hotkeyProblem("Alt+Shift+Space")).toBeNull();
+    expect(hotkeyProblem("Control+Shift+KeyA")).toBeNull();
+    expect(hotkeyProblem("Control+Alt+Space")).toBeNull();
+    expect(hotkeyProblem("F9")).toBeNull();
+  });
   it("shows readable labels", () => {
     expect(prettyHotkey("Control+Alt+Digit1")).toBe("Ctrl + Alt + 1");
     expect(prettyHotkey("Super+KeyD")).toBe("Win + D");
@@ -68,5 +80,24 @@ describe("spoken control commands", () => {
     expect(parseControl("Mach alle Tests weiter grün")).toBeNull();
     expect(parseControl("Fenster 9 stopp")).toBeNull();
     expect(parseControl("")).toBeNull();
+  });
+});
+
+describe("silenceDetector", () => {
+  it("stops only after speech followed by enough quiet", () => {
+    const d = silenceDetector(400, 80);
+    const feed = (levels: number[]) => levels.map((l) => d(l));
+    expect(feed([0.002, 0.003, 0.002, 0.002, 0.002]).some(Boolean)).toBe(false); // room noise
+    expect(feed(Array(20).fill(0.002)).some(Boolean)).toBe(false); // silence before speaking never stops
+    expect(feed([0.05, 0.08, 0.06, 0.07]).some(Boolean)).toBe(false); // speaking
+    expect(feed([0.003, 0.003, 0.003, 0.003]).some(Boolean)).toBe(false); // short pause
+    expect(feed([0.003])).toEqual([true]); // 5 × 80 ms quiet
+  });
+
+  it("adapts to a noisy room", () => {
+    const d = silenceDetector(160, 80);
+    [0.03, 0.03, 0.03, 0.03, 0.03].forEach(d); // fan noise
+    expect([0.05, 0.05, 0.05].map(d).some(Boolean)).toBe(false); // below 3× noise: not speech
+    expect([0.03, 0.03, 0.03].map(d).some(Boolean)).toBe(false);
   });
 });

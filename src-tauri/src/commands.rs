@@ -1574,7 +1574,7 @@ const SETTING_KEYS: &[&str] = &[
     "terminalFontFamily", "indexIntervalSec", "defaultLayout", "orchestration",
     "autoContinueDefault", "autoContinueMessage", "autoContinueRetryMin", "autoFailover",
     "notifyOnWaiting", "defaultAutonomy", "defaultProjectId",
-    "voiceEnabled", "voiceModel", "voiceLanguage", "voiceMode", "voiceHotkeyFocused", "voiceAutoSend",
+    "voiceEnabled", "voiceModel", "voiceLanguage", "voiceMode", "voiceHotkeyFocused", "voiceAutoSend", "voiceStopOnSilence", "voiceSilenceMs",
     "voiceVocabulary", "voiceDevice", "activityDetails", "editorCommand", "notifyPopup", "notifySound",
     "notifyWhen", "voiceSounds", "notifyTimeoutSec", "maxPanes", "whenFull", "voicePaneModifier",
     "voicePickWhileRecording", "voiceTargetDefault", "contextWarnPercent", "conflictWarn", "pushUrl",

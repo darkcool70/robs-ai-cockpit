@@ -648,7 +648,7 @@ export const api = {
   assistantsList: () => invoke<Assistant[]>("assistants_list"),
   assistantSave: (input: Partial<Assistant> & { name: string; avatar: string }) => invoke<Assistant>("assistant_save", { input }),
   assistantDelete: (id: string) => invoke<void>("assistant_delete", { id }),
-  assistantLaunch: (id: string, goal?: string) => invoke<{ session: Session; automation: Automation }>("assistant_launch", { id, goal }),
+  assistantLaunch: (id: string, goal?: string, chat = false) => invoke<{ session: Session; automation: Automation | null }>("assistant_launch", { id, goal, chat }),
   automationSave: (input: { id?: string; sessionId: string; name: string; mode: AutomationMode; prompts: string[]; repeat: number; delaySec: number; stopPhrase?: string | null; start: boolean; goal?: GoalConfig | null }) =>
     invoke<Automation>("automation_save", { input }),
   automationControl: (id: string, action: "start" | "pause" | "stop" | "reset") => invoke<Automation>("automation_control", { id, action }),

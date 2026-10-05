@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { Keyboard } from "lucide-react";
 import { useApp } from "../store";
-import { altGrConflict, hotkeyFromEvent, pauseHotkeys, prettyHotkey, resumeHotkeys } from "../lib/voice";
+import { hotkeyFromEvent, hotkeyProblem, pauseHotkeys, prettyHotkey, resumeHotkeys } from "../lib/voice";
 import { Button, Kbd, Modal } from "./ui";
 
 /** Press the combination you want; works while the cockpit has focus, fires system-wide later. */
@@ -20,9 +20,9 @@ export function HotkeyCapture({ value, onChange }: { value: string | null; onCha
       }
       const h = hotkeyFromEvent(e);
       if (!h) return;
-      const ch = altGrConflict(h);
-      if (ch) {
-        setError(`${prettyHotkey(h)} is AltGr+${prettyHotkey(h).split(" + ").pop()} on a German keyboard ("${ch}") — you could no longer type it. Choose another.`);
+      const problem = hotkeyProblem(h);
+      if (problem) {
+        setError(problem);
         return;
       }
       setError(null);

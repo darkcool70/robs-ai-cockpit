@@ -3,7 +3,7 @@ import { listen } from "@tauri-apps/api/event";
 import { CheckCircle2, Download, Mic } from "lucide-react";
 import { useApp } from "../store";
 import { api, errMsg, type SttStatus } from "../lib/api";
-import { DEFAULT_FOCUSED_HOTKEY, DEFAULT_PANE_MODIFIER, PANE_MODIFIERS, paneModifier } from "../lib/voice";
+import { DEFAULT_FOCUSED_HOTKEY, DEFAULT_PANE_MODIFIER, PANE_MODIFIERS, hotkeyProblem, paneModifier } from "../lib/voice";
 import { HotkeyCapture } from "../components/HotkeyDialog";
 import { Badge, Button, Card, Field, Kbd, Meter, SectionTitle, Select, cx } from "../components/ui";
 
@@ -137,6 +137,9 @@ export function VoiceSettings() {
               />
               <Button size="sm" variant="ghost" onClick={() => void setSetting("voiceHotkeyFocused", "")}>Disable</Button>
             </div>
+            {hotkeyProblem(typeof settings.voiceHotkeyFocused === "string" ? settings.voiceHotkeyFocused : DEFAULT_FOCUSED_HOTKEY) && (
+              <p className="mt-1 max-w-[420px] text-[11.5px] text-warn">{hotkeyProblem(settings.voiceHotkeyFocused as string)}</p>
+            )}
           </Field>
           <Field label="…dictates into" hint="You can still switch while speaking (see below).">
             <Select value={(settings.voiceTargetDefault as string) || "focused"} onChange={(e) => void setSetting("voiceTargetDefault", e.target.value)}>
@@ -178,6 +181,14 @@ export function VoiceSettings() {
           Also possible: a fixed shortcut for one session (keyboard button next to the mic in its pane header), or say its name first — “Claude B, …”, “Fenster 3, …”.
         </p>
       </div>
+
+      <label className="flex items-start gap-2">
+        <input type="checkbox" checked={settings.voiceStopOnSilence !== false} onChange={(e) => void setSetting("voiceStopOnSilence", e.target.checked)} className="mt-0.5" />
+        <span>
+          Stop recording when I stop talking
+          <span className="block text-[11.5px] text-faint">After about 1.5 seconds of quiet the text is transcribed. Esc while it is being transcribed discards it.</span>
+        </span>
+      </label>
 
       <label className="flex items-start gap-2">
         <input type="checkbox" checked={settings.voiceAutoSend === true} onChange={(e) => void setSetting("voiceAutoSend", e.target.checked)} className="mt-0.5" />

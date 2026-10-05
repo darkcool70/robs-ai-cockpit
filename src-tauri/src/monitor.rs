@@ -455,7 +455,7 @@ fn claude_activity(rt: &mut Runtime, v: &Value, event: &str, ts: i64) {
                 .map(str::to_string)
                 .or_else(|| rt.view.transcript_path.as_deref().and_then(|t| crate::activity::claude_last_message(Path::new(t))))
                 .unwrap_or_default();
-            apply_activity(rt, Activity::new(ts, "done", crate::activity::excerpt_lines(&msg, 1200), None));
+            apply_activity(rt, Activity::new(ts, "done", crate::activity::excerpt_lines(&msg, crate::activity::ANSWER_CHARS), None));
         }
         _ => {}
     }
