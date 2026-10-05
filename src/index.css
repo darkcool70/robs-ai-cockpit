@@ -170,6 +170,40 @@ html.hud #root {
 .msg-in { animation: msg-in 0.25s ease-out; }
 @keyframes msg-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
 
+/* Voice overlay: glass panel with a glowing orb (colours from --va / --vb). */
+.voice-panel {
+  background: radial-gradient(120% 140% at 50% 0%, color-mix(in srgb, var(--va) 16%, transparent), transparent 60%), rgba(6, 10, 18, 0.86);
+  border: 1px solid color-mix(in srgb, var(--va) 35%, transparent);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04) inset, 0 20px 80px -10px color-mix(in srgb, var(--va) 45%, transparent), 0 10px 40px rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(14px);
+  animation: voice-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+.voice-glow { background: radial-gradient(circle, color-mix(in srgb, var(--va) 55%, transparent) 0%, color-mix(in srgb, var(--vb) 25%, transparent) 35%, transparent 68%); transition: transform 90ms linear; filter: blur(6px); }
+.voice-ring {
+  background: conic-gradient(from 0deg, var(--va), var(--vb), transparent 55%, var(--va) 80%, var(--vb), var(--va));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 5px), #000 calc(100% - 4px));
+  animation: voice-spin 4s linear infinite;
+  filter: drop-shadow(0 0 8px var(--va));
+}
+.voice-ring-fast { animation-duration: 1.1s; }
+.voice-core {
+  background: radial-gradient(circle at 35% 30%, rgba(255, 255, 255, 0.55), color-mix(in srgb, var(--va) 70%, #0b1220) 40%, color-mix(in srgb, var(--vb) 55%, #050810) 100%);
+  box-shadow: 0 0 30px color-mix(in srgb, var(--va) 70%, transparent), inset 0 0 24px rgba(255, 255, 255, 0.18);
+  transition: transform 90ms linear;
+}
+.voice-wave { border: 2px solid color-mix(in srgb, var(--va) 60%, transparent); animation: voice-wave 2.4s ease-out infinite; }
+.voice-wave-2 { animation-delay: 1.2s; border-color: color-mix(in srgb, var(--vb) 60%, transparent); }
+.voice-bar { background: linear-gradient(to top, var(--va), var(--vb)); box-shadow: 0 0 8px color-mix(in srgb, var(--va) 60%, transparent); transition: height 80ms linear; }
+.voice-bar-idle { height: 30%; animation: voice-bar 1.1s ease-in-out infinite; }
+.voice-btn { display: inline-flex; align-items: center; gap: 4px; border-radius: 9999px; padding: 3px 10px; color: #04121c; font-weight: 600; background: linear-gradient(90deg, var(--va), var(--vb)); }
+.voice-btn-ghost { display: inline-flex; align-items: center; gap: 4px; border-radius: 9999px; padding: 3px 8px; color: rgba(255, 255, 255, 0.6); border: 1px solid rgba(255, 255, 255, 0.12); }
+.voice-btn-ghost:hover { color: #fff; border-color: rgba(255, 255, 255, 0.3); }
+@keyframes voice-spin { to { transform: rotate(360deg); } }
+@keyframes voice-wave { from { transform: scale(1); opacity: 0.8; } to { transform: scale(1.9); opacity: 0; } }
+@keyframes voice-bar { 0%, 100% { height: 18%; } 50% { height: 80%; } }
+@keyframes voice-in { from { opacity: 0; transform: translateY(24px) scale(0.96); } to { opacity: 1; transform: none; } }
+
 @media (prefers-reduced-motion: reduce) {
-  .av *, .av, .typing-dots i, .msg-in { animation: none !important; }
+  .av *, .av, .typing-dots i, .msg-in, .voice-panel, .voice-ring, .voice-wave, .voice-bar-idle { animation: none !important; }
 }

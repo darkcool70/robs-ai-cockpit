@@ -367,8 +367,43 @@ export function voiceChoices(): VoiceChoice[] {
   return out;
 }
 
+/** Dictation into a text field of the cockpit (task, chat, search…) instead of a terminal. */
+export const FIELD_TARGET = "field";
+let field: HTMLInputElement | HTMLTextAreaElement | HTMLElement | null = null;
+
+/** A text field the user is typing in (not the terminal's hidden input). */
+export function editableField(el: Element | null): HTMLInputElement | HTMLTextAreaElement | HTMLElement | null {
+  if (!el) return null;
+  if (el instanceof HTMLTextAreaElement) return el.classList.contains("xterm-helper-textarea") || el.readOnly || el.disabled ? null : el;
+  if (el instanceof HTMLInputElement) return ["text", "search", "url", "email", ""].includes(el.type) && !el.readOnly && !el.disabled ? el : null;
+  return el instanceof HTMLElement && el.isContentEditable ? el : null;
+}
+
+/** Type text into the field at the cursor, the way React sees it (undo works too). */
+function typeIntoField(el: HTMLElement, text: string): boolean {
+  el.focus();
+  const before = el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement ? el.value : el.textContent;
+  const sep = before && !/\s$/.test(before) ? " " : "";
+  if (document.execCommand("insertText", false, sep + text)) return true;
+  if (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement) {
+    const proto = el instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(el, el.value + sep + text);
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }
+  return false;
+}
+
 function resolveTarget(target: string): string | null {
   const st = useApp.getState();
+  // Main shortcut while you are typing in a field of the cockpit: dictate into that field.
+  if (target === "focused" && document.hasFocus()) {
+    const el = editableField(document.activeElement);
+    if (el) {
+      field = el;
+      return FIELD_TARGET;
+    }
+  }
   if (target.startsWith("pane:")) {
     const n = Number(target.slice(5));
     return voiceChoices().find((c) => c.n === n)?.id ?? null;
@@ -500,7 +535,8 @@ export async function startDictation(id: string) {
   const st = useApp.getState();
   if (st.voice.state !== "idle") return;
   const silence = Number(st.settings.voiceSilenceMs ?? 1500);
-  endOfSpeech = st.settings.voiceStopOnSilence === false ? null : silenceDetector(silence > 0 ? silence : 1500);
+  const talking = st.talkSession === id; // a conversation always ends a turn on silence
+  endOfSpeech = st.settings.voiceStopOnSilence === false && !talking ? null : silenceDetector(silence > 0 ? silence : 1500);
   st.setVoice({ state: "recording", target: id, level: 0 });
   try {
     await api.sttStart(id);
@@ -528,6 +564,7 @@ export async function cancelDictation() {
   if (st.voice.state !== "recording") return;
   await api.sttCancel().catch(() => {});
   st.setVoice({ state: "idle", target: null, level: 0 });
+  if (st.talkSession) useApp.setState({ talkSession: null }); // Esc ends a voice conversation
   await disarmPicker();
   if (hotkeysDirty) void syncHotkeys();
 }
@@ -541,6 +578,7 @@ export function discardTranscription() {
   if (st.voice.state !== "transcribing") return;
   discarded = transcription;
   st.setVoice({ state: "idle", target: null, level: 0 });
+  if (st.talkSession) useApp.setState({ talkSession: null });
   st.toast("🎤 Dictation discarded", "info");
   void unregister("Escape").catch(() => {});
   if (hotkeysDirty) void syncHotkeys();
@@ -561,6 +599,16 @@ export async function stopDictation(send = false) {
   try {
     const r = await api.sttStop();
     if (discarded === job) return;
+    if (chosen === FIELD_TARGET) {
+      const el = field;
+      field = null;
+      if (!r.text) useApp.getState().toast("Didn't catch that — nothing was typed", "info");
+      else if (!el || !el.isConnected || !typeIntoField(el, r.text)) {
+        await navigator.clipboard?.writeText(r.text).catch(() => {});
+        useApp.getState().toast("The text field is gone — text copied to the clipboard", "warn");
+      }
+      return;
+    }
     const target = chosen && useApp.getState().sessions[chosen] ? chosen : r.target;
     const control = r.text && useApp.getState().settings.voiceCommands !== false ? parseControl(r.text) : null;
     if (control) {
@@ -599,8 +647,10 @@ export async function deliver(id: string, text: string, send: boolean) {
     st.toast(`"${s?.name ?? "Session"}" is not running — text copied to the clipboard`, "warn");
     return;
   }
-  await api.ptyWrite(id, text);
-  if (send || st.settings.voiceAutoSend === true) {
+  // In a voice conversation the message goes out at once, marked as spoken (short spoken answers).
+  const talking = st.talkSession === id;
+  await api.ptyWrite(id, talking ? `🎙 ${text}` : text);
+  if (send || talking || st.settings.voiceAutoSend === true) {
     await new Promise((r) => setTimeout(r, 150));
     await api.ptyWrite(id, "\r");
   }

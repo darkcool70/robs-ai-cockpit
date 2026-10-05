@@ -6,6 +6,27 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.3.1] - 2026-10-05
+
+### Added
+- **New voice overlay**: a glowing orb in the lower third that reacts to your voice, swirls while
+  Whisper transcribes and pulses while an answer is read aloud.
+- **Dictate into any text field**: with the cursor in a field of the cockpit (task, chat, search),
+  the main voice shortcut types there instead of into a terminal.
+- Dictation **stops by itself** after about 1.5 seconds of quiet (Settings → Voice); Esc while
+  transcribing discards the text.
+- **Assistants (Pro)**: chat first (they ask questions and only start goals when you say so), voice
+  conversations (answers are read aloud, then the mic opens again), and task proposals you confirm
+  and hand to running agents or new agents in their own worktrees.
+- Review: "Add repository…" and a hint when a folder has no git yet.
+
+### Fixed
+- Only one cockpit runs at a time; starting it again brings the window to the front. Several
+  instances ran loops twice and kept old voice shortcuts alive.
+- Voice shortcuts that would break typing or editing everywhere (Shift+letter, Ctrl+A/C/V…)
+  are refused with an explanation.
+- The phone remote closes connections gracefully.
+
 ## [0.3.0] - 2026-10-04
 
 ### Added

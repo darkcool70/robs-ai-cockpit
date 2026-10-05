@@ -125,6 +125,10 @@ interface State {
   teamOpen: boolean;
   broadcastOpen: boolean;
   voice: Voice;
+  /** Who is being read aloud right now (speech output), for the voice overlay. */
+  speaking: { sessionId: string | null; name: string } | null;
+  /** Voice conversation: answers of this session are read aloud, then the mic opens again. */
+  talkSession: string | null;
   hotkeyFor: string | null;
   /** Latest activity per session (newest last), fed live by the backend. */
   activity: Record<string, Activity[]>;
@@ -328,6 +332,8 @@ export const useApp = create<State>((set, get) => ({
   teamOpen: false,
   broadcastOpen: false,
   voice: { state: "idle", target: null, level: 0 },
+  speaking: null,
+  talkSession: null,
   hotkeyFor: null,
   activity: {},
   filesVersion: 0,
