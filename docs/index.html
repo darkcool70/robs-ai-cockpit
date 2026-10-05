@@ -1,0 +1,252 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Robs AI Cockpit – run Claude Code and Codex agents side by side</title>
+<meta name="description" content="Free, open-source Windows app to run several Claude Code and OpenAI Codex CLI agents side by side: notifications when an agent needs you, local voice input, task board, token and quota analytics. Local-first, no telemetry.">
+<link rel="canonical" href="https://darkcool70.github.io/robs-ai-cockpit/">
+<link rel="icon" type="image/png" href="logo.png">
+<meta property="og:type" content="website">
+<meta property="og:title" content="Robs AI Cockpit – your AI coding team in one window">
+<meta property="og:description" content="Run Claude Code and Codex agents side by side. Pop-ups when an agent needs you, local voice input, task board, quota analytics. Free and open source.">
+<meta property="og:url" content="https://darkcool70.github.io/robs-ai-cockpit/">
+<meta property="og:image" content="https://darkcool70.github.io/robs-ai-cockpit/images/social-preview.png">
+<meta property="og:image:width" content="1280">
+<meta property="og:image:height" content="640">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:image" content="https://darkcool70.github.io/robs-ai-cockpit/images/social-preview.png">
+<script type="application/ld+json">
+{"@context":"https://schema.org","@type":"SoftwareApplication","name":"Robs AI Cockpit","operatingSystem":"Windows 11","applicationCategory":"DeveloperApplication","description":"Desktop control plane for running Claude Code and OpenAI Codex CLI agents side by side, with notifications, local voice input, a task board and token and quota analytics.","license":"https://www.apache.org/licenses/LICENSE-2.0","url":"https://darkcool70.github.io/robs-ai-cockpit/","downloadUrl":"https://github.com/darkcool70/robs-ai-cockpit/releases/latest","offers":{"@type":"Offer","price":"0","priceCurrency":"EUR"}}
+</script>
+<style>
+/* Layout: dark cockpit hero with the real screenshot, then alternating feature rows; system fonts only (no third-party requests) */
+:root{
+  --bg:#07120f; --bg-2:#0c1b17; --surface:#10221d; --line:#1f3a32;
+  --ink:#e8f2ee; --muted:#9db3ab; --accent:#2fd67a; --accent-ink:#04120b;
+  --sans:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+  --mono:"Cascadia Code","Cascadia Mono",Consolas,"SFMono-Regular",Menlo,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:var(--bg);color:var(--ink);font:17px/1.6 var(--sans);padding-inline:20px}
+img{max-width:100%;height:auto;display:block}
+a{color:var(--accent)}
+a:focus-visible,.btn:focus-visible{outline:3px solid var(--accent);outline-offset:3px}
+.wrap{max-width:1120px;margin:0 auto}
+h1,h2,h3{text-wrap:balance;margin:0;line-height:1.12;letter-spacing:-.015em}
+h1{font-size:clamp(2.3rem,6vw,4.1rem);font-weight:700}
+h2{font-size:clamp(1.6rem,3.4vw,2.3rem);font-weight:700}
+h3{font-size:1.25rem;font-weight:600}
+p{margin:0}
+.lede{font-size:clamp(1.05rem,2vw,1.3rem);color:var(--muted);max-width:60ch}
+.mono{font-family:var(--mono)}
+.label{font:600 .78rem/1 var(--mono);letter-spacing:.12em;text-transform:uppercase;color:var(--accent)}
+
+nav{display:flex;justify-content:space-between;align-items:center;gap:16px;padding-block:20px;flex-wrap:wrap}
+.brand{display:flex;align-items:center;gap:10px;font-weight:700;color:var(--ink);text-decoration:none}
+.brand img{width:32px;height:32px;border-radius:8px}
+nav .links{display:flex;gap:20px;flex-wrap:wrap;font-size:.95rem}
+nav .links a{color:var(--muted);text-decoration:none}
+nav .links a:hover{color:var(--ink)}
+
+.hero{display:flex;flex-direction:column;align-items:flex-start;gap:22px;padding-block:56px 40px;
+  background:radial-gradient(800px 380px at 10% 0%,rgba(47,214,122,.12),transparent 70%)}
+.hero h1 em{font-style:normal;color:var(--accent)}
+.ctas{display:flex;gap:12px;flex-wrap:wrap}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 22px;border-radius:8px;font-weight:600;text-decoration:none;font-size:1rem}
+.btn-primary{background:var(--accent);color:var(--accent-ink)}
+.btn-primary:hover{filter:brightness(1.1)}
+.btn-ghost{border:1px solid var(--line);color:var(--ink);background:var(--bg-2)}
+.btn-ghost:hover{border-color:var(--accent)}
+.fine{font-size:.88rem;color:var(--muted)}
+.shot{border-radius:12px;border:1px solid var(--line);box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.hero-shot{margin-bottom:24px}
+
+.facts{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:10px;overflow:hidden;margin-block:40px 96px}
+.facts div{background:var(--bg-2);padding:18px 20px;display:flex;flex-direction:column;gap:4px}
+.facts b{font:600 1.05rem var(--mono);color:var(--ink)}
+.facts span{color:var(--muted);font-size:.92rem}
+
+.problem{display:flex;flex-direction:column;gap:16px;max-width:760px;margin-bottom:96px}
+.problem p{color:var(--muted);font-size:1.12rem}
+
+.feature{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:48px;align-items:center;margin-bottom:104px}
+.feature.flip{grid-template-columns:minmax(0,7fr) minmax(0,5fr)}
+.feature.flip .text{order:2}
+.feature .text{display:flex;flex-direction:column;gap:14px}
+.feature .text p{color:var(--muted)}
+kbd{font:600 .85em var(--mono);border:1px solid var(--line);border-bottom-width:2px;border-radius:5px;padding:1px 6px;background:var(--bg-2);color:var(--ink)}
+@media (max-width:820px){
+  .feature,.feature.flip{grid-template-columns:1fr;gap:20px}
+  .feature.flip .text{order:0}
+}
+
+.more{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:28px 32px;margin-block:28px 104px}
+.more div{display:flex;flex-direction:column;gap:6px;border-top:1px solid var(--line);padding-top:16px}
+.more p{color:var(--muted);font-size:.95rem}
+
+.privacy{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:36px clamp(20px,4vw,48px);display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:28px;margin-bottom:104px}
+.privacy ul{margin:0;padding-left:1.1em;display:flex;flex-direction:column;gap:8px;color:var(--muted)}
+
+.pro{display:flex;flex-direction:column;gap:14px;max-width:760px;margin-bottom:104px}
+.pro p{color:var(--muted)}
+
+.faq{display:flex;flex-direction:column;gap:12px;margin-block:24px 104px;max-width:820px}
+details{border:1px solid var(--line);border-radius:10px;background:var(--bg-2);padding:14px 18px}
+summary{cursor:pointer;font-weight:600}
+details p{color:var(--muted);margin-top:10px}
+
+.final{text-align:left;display:flex;flex-direction:column;gap:18px;align-items:flex-start;padding-block:56px;border-top:1px solid var(--line)}
+footer{border-top:1px solid var(--line);padding-block:28px 48px;color:var(--muted);font-size:.85rem;display:flex;flex-direction:column;gap:8px}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<nav>
+  <a class="brand" href="#"><img src="logo.png" alt="" width="32" height="32">Robs AI Cockpit</a>
+  <div class="links">
+    <a href="#features">Features</a>
+    <a href="#privacy">Privacy</a>
+    <a href="#faq">FAQ</a>
+    <a href="https://github.com/darkcool70/robs-ai-cockpit">GitHub</a>
+  </div>
+</nav>
+
+<header class="hero">
+  <span class="label">Claude Code + Codex · Windows · open source</span>
+  <h1>Your AI coding team, <em>in one window.</em></h1>
+  <p class="lede">Run several Claude Code and Codex agents side by side in real terminals. The cockpit tells you the moment one needs you, so you stop babysitting tabs.</p>
+  <div class="ctas">
+    <a class="btn btn-primary" href="https://github.com/darkcool70/robs-ai-cockpit/releases/latest">Download for Windows</a>
+    <a class="btn btn-ghost" href="https://github.com/darkcool70/robs-ai-cockpit">★ Star on GitHub</a>
+  </div>
+  <p class="fine">Free · Apache-2.0 · No account, no API key, no telemetry</p>
+</header>
+
+<img class="shot hero-shot" src="images/hero.png" width="1800" height="1199" alt="Four agents in one project: Claude waits for its limit reset while three Codex agents review, test and document">
+
+<div class="facts">
+  <div><b>8 panes</b><span>live, fully interactive terminals</span></div>
+  <div><b>0 API keys</b><span>the official CLIs log in themselves</span></div>
+  <div><b>0 telemetry</b><span>everything stays in ~/.ai-cockpit</span></div>
+  <div><b>5 h + weekly</b><span>quota per account with reset countdown</span></div>
+</div>
+
+<section class="problem">
+  <span class="label">Why</span>
+  <h2>One agent is easy. Four is chaos.</h2>
+  <p>Terminals everywhere. You miss the moment one finishes or waits for a permission. One account hits its limit while another sits idle, and nobody knows which agent changed what. The cockpit turns that into one calm dashboard.</p>
+</section>
+
+<section id="features">
+  <div class="feature">
+    <div class="text">
+      <span class="label">Notifications</span>
+      <h3>A pop-up the moment an agent needs you</h3>
+      <p>When an agent finishes, asks for a permission or hits a limit, a pop-up shows its actual answer, how long it took and how many files changed. Reply, dictate or jump to the session without hunting for the right terminal. Optional phone push via ntfy.</p>
+    </div>
+    <img class="shot" src="images/notifications.png" width="1800" height="1199" loading="lazy" alt="Heads-up notifications with the agent's last answer and a reply box">
+  </div>
+
+  <div class="feature flip">
+    <div class="text">
+      <span class="label">Mission control · <kbd>Ctrl</kbd>+<kbd>0</kbd></span>
+      <h3>Every agent at a glance</h3>
+      <p>What each agent is doing right now, its last answer, git branch and uncommitted files. Per account: 5-hour and weekly quota with a reset countdown and a warning when you'll hit the limit before the reset.</p>
+    </div>
+    <img class="shot" src="images/overview.png" width="1800" height="1199" loading="lazy" alt="Overview with agent cards, quota per account, changed files and an activity timeline">
+  </div>
+
+  <div class="feature">
+    <div class="text">
+      <span class="label">Voice · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd></span>
+      <h3>Talk to your agents from any app</h3>
+      <p>Hold the shortcut, speak, release. The text lands in the focused agent. Transcription runs locally with whisper.cpp, so your audio never leaves your computer.</p>
+    </div>
+    <img class="shot" src="images/voice.png" width="1800" height="778" loading="lazy" alt="Voice input overlay with the target pane chooser">
+  </div>
+
+  <div class="feature flip">
+    <div class="text">
+      <span class="label">Task board</span>
+      <h3>Hand out work, review the results</h3>
+      <p>Drag tasks onto agents or let auto-dispatch give them to idle ones. Finished answers land in Review, where another agent can check them. One git worktree per task keeps agents off each other's files.</p>
+    </div>
+    <img class="shot" src="images/tasks.png" width="1800" height="1199" loading="lazy" alt="Task board with open, running, review and done columns">
+  </div>
+
+  <div class="feature">
+    <div class="text">
+      <span class="label">Usage</span>
+      <h3>Know where your tokens go</h3>
+      <p>Token figures are measured from the CLIs' own local logs, not estimated: per account, model, project, day and hour, with cache hit rate and the API-equivalent value of your subscription.</p>
+    </div>
+    <img class="shot" src="images/usage.png" width="1800" height="1044" loading="lazy" alt="Usage analytics with tokens per account, day and hour">
+  </div>
+</section>
+
+<section>
+  <span class="label">And more</span>
+  <div class="more">
+    <div><h3>Loops and queues</h3><p>Repeat a prompt until "ALL TESTS PASS", or queue the next one for when the agent is done.</p></div>
+    <div><h3>Auto-continue</h3><p>When a CLI reports a usage limit, the cockpit waits for the reset and types "continue" for you.</p></div>
+    <div><h3>Night shift</h3><p>Agents work through the task list overnight and leave you a report in the morning.</p></div>
+    <div><h3>Review and commit</h3><p>Per-file diffs with the agent that last touched each file. Commit yourself or let an agent do it.</p></div>
+    <div><h3>Other CLIs too</h3><p>Gemini CLI, Aider, Ollama and other terminal tools run as agents in the same grid.</p></div>
+    <div><h3>Command palette</h3><p><kbd>Ctrl</kbd>+<kbd>P</kbd> for everything, including a reusable prompt template library.</p></div>
+  </div>
+</section>
+
+<section id="privacy" class="privacy">
+  <div style="display:flex;flex-direction:column;gap:12px">
+    <span class="label">Privacy</span>
+    <h2>No backend. No telemetry. No stored credentials.</h2>
+  </div>
+  <ul>
+    <li>The official <code class="mono">claude</code> and <code class="mono">codex</code> binaries do the work and handle login themselves.</li>
+    <li>The cockpit never reads or stores passwords, OAuth tokens or cookies.</li>
+    <li>API-key variables are stripped from every spawned CLI, so you are never billed per token by accident.</li>
+    <li>All data lives in a local SQLite database. Export and wipe are one click away.</li>
+    <li>This website loads no fonts, scripts or trackers from third parties.</li>
+  </ul>
+</section>
+
+<section class="pro">
+  <span class="label">Coming soon · Pro</span>
+  <h2>Assistants that pursue a goal on their own</h2>
+  <p>Give an assistant a face, a personality and a goal. After every step a small supervisor model rates the progress and writes the next instruction, until the goal is reached or it needs you. Pro starts with 7 days free, no account and no card. Everything else stays free and open source.</p>
+  <p>Want to know when it's out? On GitHub, choose <b>Watch → Custom → Releases</b>.</p>
+  <img class="shot" src="images/assistant-room.png" width="1800" height="1166" loading="lazy" alt="An assistant working toward a goal: chat with supervisor notes next to its live terminal">
+</section>
+
+<section id="faq">
+  <span class="label">FAQ</span>
+  <div class="faq">
+    <details><summary>What do I need?</summary><p>Windows 11 (Windows 10 with WebView2 should work but is untested) and at least one agent CLI on your PATH: Claude Code (<code class="mono">claude</code>) or the OpenAI Codex CLI (<code class="mono">codex</code>), with a subscription or account for each provider you use.</p></details>
+    <details><summary>Windows SmartScreen warns me. Is it safe?</summary><p>The installer is not code-signed yet, so Windows shows "unknown publisher". Choose <i>More info → Run anyway</i>. The full source is on GitHub, and you can build the installer yourself with <code class="mono">pnpm tauri build</code>.</p></details>
+    <details><summary>Does it use my API key or cost extra tokens?</summary><p>No. It starts the official CLIs with your existing subscription login and removes API-key environment variables so nothing is billed per token by accident.</p></details>
+    <details><summary>Mac or Linux?</summary><p>Not yet. The app is built with Tauri 2, so other platforms are possible. Tell us on GitHub if you need one.</p></details>
+    <details><summary>Is this made by Anthropic or OpenAI?</summary><p>No. It is an independent open-source project and is not affiliated with, endorsed by or sponsored by Anthropic or OpenAI.</p></details>
+  </div>
+</section>
+
+<section class="final">
+  <h2>Stop babysitting terminals.</h2>
+  <div class="ctas">
+    <a class="btn btn-primary" href="https://github.com/darkcool70/robs-ai-cockpit/releases/latest">Download for Windows</a>
+    <a class="btn btn-ghost" href="https://github.com/darkcool70/robs-ai-cockpit">★ Star on GitHub</a>
+  </div>
+</section>
+
+<footer>
+  <p>© 2026 Robert Bansimer · <a href="https://github.com/darkcool70/robs-ai-cockpit/blob/main/LICENSE">Apache-2.0</a> · <a href="https://github.com/darkcool70/robs-ai-cockpit/blob/main/docs/SECURITY.md">Security</a></p>
+  <p>"Claude" and "Claude Code" are trademarks of Anthropic, PBC. "OpenAI" and "Codex" are trademarks of OpenAI. They are used here only to describe compatibility.</p>
+</footer>
+
+</div>
+</body>
+</html>
