@@ -16,6 +16,9 @@ import { initVoice } from "./lib/voice";
 import { initNotify } from "./lib/notify";
 import { initWorkflow } from "./lib/workflow";
 import { initTts } from "./lib/tts";
+import { toggleMute } from "./lib/mute";
+import { initBriefing } from "./lib/briefing";
+import { initWake } from "./lib/wake";
 import { initFileDrop } from "./lib/filedrop";
 import { AccountsView } from "./views/AccountsView";
 import { HistoryView } from "./views/HistoryView";
@@ -26,12 +29,15 @@ import { OverviewView } from "./views/OverviewView";
 import { LoopsView } from "./views/LoopsView";
 import { AssistantsView } from "@pro/AssistantsView";
 import { TasksView } from "./views/TasksView";
+import { VoiceView } from "./views/VoiceView";
+import { initPro } from "@pro/boot";
 import { ReviewView } from "./views/ReviewView";
 import { PinsView } from "./views/PinsView";
 import { Cheatsheet } from "./components/Cheatsheet";
 import { Tour, TOUR_VERSION } from "./components/Tour";
 import { cx } from "./components/ui";
 import { api, errMsg } from "./lib/api";
+import { savedKeys } from "./lib/remoteKeys";
 import { setTerminalLight } from "./lib/terminals";
 
 function useShortcuts() {
@@ -55,6 +61,10 @@ function useShortcuts() {
       } else if (k === "f" && e.shiftKey) {
         e.preventDefault();
         if (st.mode !== "1" && st.mode !== "tabs") st.setZoom(st.zoomed == null ? st.focused : null);
+      } else if (k === "m" && e.shiftKey) {
+        // mute / unmute every spoken output (the microphone keeps working)
+        e.preventDefault();
+        void toggleMute();
       } else if (k === "n") {
         e.preventDefault();
         st.openNewSession(null);
@@ -100,6 +110,19 @@ export default function App() {
     init().catch((e) => useApp.getState().toast(`Startup failed: ${errMsg(e)}`, "error"));
   }, [init]);
 
+  // WebView2's zoom is on (tauri.conf.json), because only then does a touchpad pinch reach the page
+  // at all (as Ctrl+wheel) — the board zooms with it. The app itself never zooms: every Ctrl+wheel
+  // and Ctrl + / − / 0 is cancelled here (handlers still get them; nobody checks defaultPrevented).
+  useEffect(() => {
+    const wheel = (e: WheelEvent) => { if (e.ctrlKey) e.preventDefault(); };
+    const key = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && (["+", "=", "-", "0"].includes(e.key) || ["NumpadAdd", "NumpadSubtract", "Numpad0"].includes(e.code))) e.preventDefault();
+    };
+    window.addEventListener("wheel", wheel, { passive: false });
+    window.addEventListener("keydown", key);
+    return () => { window.removeEventListener("wheel", wheel); window.removeEventListener("keydown", key); };
+  }, []);
+
   // Theme: dark / light / like Windows.
   const theme = useApp((s) => (typeof s.settings.theme === "string" ? s.settings.theme : "dark"));
   useEffect(() => {
@@ -119,13 +142,20 @@ export default function App() {
     initNotify().catch(() => {});
     initWorkflow();
     initTts();
+    initBriefing();
+    initWake().catch(() => {});
+    initPro();
     initFileDrop().catch(() => {});
     // First start (or an update with new tour steps): show the tour once.
     if (Number(useApp.getState().settings.tourSeen ?? 0) < TOUR_VERSION) window.setTimeout(() => useApp.getState().setTourOpen(true), 800);
-    // Phone remote: back on after a restart if it was on.
+    // Phone remote: back on after a restart if it was on — with the keys' expiry (an expired key
+    // keeps answering "Link abgelaufen" until a new one is made in Settings).
     const st = useApp.getState().settings;
-    if (st.remoteEnabled === true && typeof st.remoteKey === "string") {
-      api.remoteStart(Number(st.remotePort ?? 8765) || 8765, st.remoteKey).catch((e) => useApp.getState().toast(`Phone remote: ${errMsg(e)}`, "warn"));
+    const saved = st.remoteEnabled === true ? savedKeys(st) : null;
+    if (saved?.keys) {
+      const { key, expires, viewKey, viewExpires } = saved.keys;
+      for (const [k, v] of Object.entries(saved.fix)) void useApp.getState().setSetting(k, v);
+      api.remoteStart(Number(st.remotePort ?? 8765) || 8765, key, expires, viewKey, viewExpires).catch((e) => useApp.getState().toast(`Phone remote: ${errMsg(e)}`, "warn"));
     }
   }, [ready]);
 
@@ -150,6 +180,7 @@ export default function App() {
             </div>
             {view === "overview" && <OverviewView />}
             {view === "assistants" && <AssistantsView />}
+            {view === "voice" && <VoiceView />}
             {view === "tasks" && <TasksView />}
             {view === "review" && <ReviewView />}
             {view === "pins" && <PinsView />}

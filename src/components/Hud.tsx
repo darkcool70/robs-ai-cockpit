@@ -1,13 +1,16 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { emit, listen } from "@tauri-apps/api/event";
-import { AlertTriangle, CheckCircle2, CornerDownLeft, ExternalLink, Loader2, Mic, Repeat, Sparkles, X, XCircle } from "lucide-react";
+import { AlertTriangle, CheckCircle2, CornerDownLeft, ExternalLink, Loader2, Mic, Repeat, Send, Sparkles, Volume2, X, XCircle } from "lucide-react";
 import { api, type HudNote } from "../lib/api";
+import type { OrbState } from "../lib/notify";
 import { cx, ProviderMark } from "./ui";
 import { AssistantAvatar, type Mood } from "./Avatar";
 
 type Note = HudNote & { sound?: boolean; timeoutSec?: number; expires: number; sent?: boolean };
 interface VoiceState {
-  state: "idle" | "recording" | "transcribing";
+  state: "idle" | "recording" | "transcribing" | "sending" | "speaking";
+  /** "sending": the recognised text. */
+  text?: string | null;
   name: string | null;
   level: number;
   show: boolean;
@@ -50,6 +53,7 @@ export function Hud() {
   const [notes, setNotes] = useState<Note[]>([]);
   const [voice, setVoice] = useState<VoiceState>({ state: "idle", name: null, level: 0, show: false });
   const [hover, setHover] = useState(false);
+  const [orb, setOrb] = useState<OrbState | null>(null);
   const box = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -63,6 +67,7 @@ export function Hud() {
         setNotes((cur) => cur.map((n) => (n.sessionId === e.payload.sessionId ? { ...n, sent: true, expires: Date.now() + 1500 } : n)));
       }),
       listen<VoiceState>("hud-voice", (e) => setVoice(e.payload)),
+      listen<OrbState>("hud-orb", (e) => setOrb(e.payload)),
       listen<{ level: number }>("stt-level", (e) => setVoice((v) => ({ ...v, level: e.payload.level }))),
     ];
     return () => offs.forEach((p) => void p.then((f) => f()));
@@ -79,21 +84,25 @@ export function Hud() {
   }, [hover]);
 
   const showVoice = voice.show && voice.state !== "idle";
+  const showOrb = !!orb?.show;
   useLayoutEffect(() => {
-    const h = notes.length || showVoice ? Math.ceil(box.current?.getBoundingClientRect().height ?? 0) + 4 : 0;
-    void api.hudLayout(h).catch(() => {});
-  }, [notes, showVoice, voice.state, voice.choices]);
+    const any = notes.length || showVoice || showOrb;
+    const h = any ? Math.ceil(box.current?.getBoundingClientRect().height ?? 0) + 4 : 0;
+    // the orb alone is small: the window shrinks to it (no invisible strip over other programs)
+    const w = !notes.length && !showVoice && showOrb ? (hover ? 300 : 64) : undefined;
+    void api.hudLayout(h, w).catch(() => {});
+  }, [notes, showVoice, voice.state, voice.choices, showOrb, orb, hover]);
 
   const act = (action: "show" | "reply" | "dictate", sessionId: string, text?: string) => void emit("hud-action", { action, sessionId, text });
   const dismiss = (id: string) => setNotes((cur) => cur.filter((n) => n.id !== id));
 
   return (
-    <div ref={box} className="flex flex-col gap-2 p-0.5" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
+    <div ref={box} className="flex flex-col items-end gap-2 p-0.5" onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)}>
       {notes.map((n) => {
         const k = KIND[n.kind];
         const Icon = k.icon;
         return (
-          <div key={n.id} className="relative overflow-hidden rounded-lg border border-line-strong bg-panel text-[12.5px] shadow-2xl">
+          <div key={n.id} className="relative w-full overflow-hidden rounded-lg border border-line-strong bg-panel text-[12.5px] shadow-2xl">
             <span className={cx("absolute inset-y-0 left-0 w-1", k.bar)} />
             <div className="flex items-start gap-2 px-3 pt-2.5 pl-4">
               {n.avatar ? (
@@ -121,7 +130,7 @@ export function Hud() {
         );
       })}
       {showVoice && voice.state === "recording" && (voice.choices?.length ?? 0) > 1 && (
-        <div className="rounded-lg border border-line-strong bg-panel px-3 py-2 text-[11.5px] shadow-2xl">
+        <div className="w-full rounded-lg border border-line-strong bg-panel px-3 py-2 text-[11.5px] shadow-2xl">
           <div className="flex flex-wrap gap-1">
             {voice.choices!.map((c) => (
               <span key={c.n} className={cx("inline-flex max-w-[170px] items-center gap-1 rounded border px-1.5 py-0.5", c.active ? "border-err/70 bg-err/15 text-fg" : "border-line text-muted")}>
@@ -133,7 +142,7 @@ export function Hud() {
         </div>
       )}
       {showVoice && (
-        <div className="flex items-center gap-2.5 rounded-full border border-line-strong bg-panel px-4 py-2 text-[12.5px] shadow-2xl">
+        <div className="flex w-full items-center gap-2.5 rounded-full border border-line-strong bg-panel px-4 py-2 text-[12.5px] shadow-2xl">
           {voice.state === "recording" ? (
             <>
               <span className="relative flex h-3 w-3">
@@ -147,6 +156,16 @@ export function Hud() {
                 ))}
               </span>
             </>
+          ) : voice.state === "sending" ? (
+            <>
+              <Send size={14} className="shrink-0 text-warn" />
+              <span className="min-w-0 flex-1 truncate">→ <b>{voice.name ?? "session"}</b>: “{voice.text}” <span className="text-faint">· Esc keeps it</span></span>
+            </>
+          ) : voice.state === "speaking" ? (
+            <>
+              <Volume2 size={14} className="shrink-0 animate-pulse text-ok" />
+              <span className="truncate"><b>{voice.name ?? "Assistant"}</b> is speaking…</span>
+            </>
           ) : (
             <>
               <Loader2 size={14} className="animate-spin text-accent" />
@@ -154,6 +173,24 @@ export function Hud() {
             </>
           )}
         </div>
+      )}
+      {showOrb && orb && (
+        <button
+          className="flex items-center gap-2"
+          title="Open the cockpit"
+          onClick={() => void emit("hud-action", { action: "open", sessionId: "" })}
+        >
+          {hover && (
+            <span className="max-w-[230px] rounded-lg border border-line-strong bg-panel px-2.5 py-1.5 text-left text-[11.5px] shadow-2xl">
+              {orb.agents.map((a) => (
+                <span key={a.name} className="flex gap-1.5 truncate"><b className="truncate">{a.name}</b><span className="truncate text-faint">{a.status}</span></span>
+              ))}
+            </span>
+          )}
+          <span className={cx("hud-orb relative grid h-[52px] w-[52px] shrink-0 place-items-center rounded-full", `hud-orb-${orb.mood}`)}>
+            <span className="text-[13px] font-bold text-white drop-shadow">{orb.waiting || orb.working || orb.total}</span>
+          </span>
+        </button>
       )}
     </div>
   );

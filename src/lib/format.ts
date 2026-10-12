@@ -53,6 +53,19 @@ export function ago(iso: string | number | null | undefined, now = Date.now()): 
   return `${Math.round(d / 86_400_000)}d ago`;
 }
 
+/** `ago` in German, for the rooms that speak German. */
+export function agoDe(iso: string | number | null | undefined, now = Date.now()): string {
+  if (iso == null) return "nie";
+  const t = typeof iso === "number" ? iso : Date.parse(iso);
+  if (!isFinite(t)) return "–";
+  const d = Math.max(0, now - t);
+  if (d < 45_000) return "gerade eben";
+  if (d < 3_600_000) return `vor ${Math.round(d / 60_000)} Min.`;
+  if (d < 86_400_000) return `vor ${Math.round(d / 3_600_000)} Std.`;
+  const days = Math.round(d / 86_400_000);
+  return days === 1 ? "gestern" : `vor ${days} Tagen`;
+}
+
 export function dateTime(iso: string | null | undefined): string {
   if (!iso) return "–";
   const d = new Date(iso);

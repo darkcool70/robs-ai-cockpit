@@ -44,6 +44,9 @@ pub fn session_run_dir(session_id: &str) -> PathBuf {
 pub fn default_config_dir(provider: &str) -> PathBuf {
     match provider {
         "claude" => home().join(".claude"),
+        "copilot" => home().join(".copilot"),
+        // Antigravity kept the Gemini CLI's folder (settings.json, skills, mcp_config.json).
+        "antigravity" => home().join(".gemini").join("antigravity-cli"),
         _ => home().join(".codex"),
     }
 }

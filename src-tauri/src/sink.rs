@@ -23,17 +23,35 @@ pub const HOOK_EVENTS: &[&str] = &[
     "PostToolUse",
     "Notification",
     "Stop",
+    // fires instead of Stop when an API error ended the turn (failure.rs)
+    "StopFailure",
     "SessionEnd",
 ];
 
+/// Claude Code versions known to accept the `StopFailure` hook (older ones may reject an unknown
+/// hook name in the settings). Without it a failed turn sends no hook at all; the monitor then
+/// counts the error line on screen for that run (`Runtime::stop_failure`,
+/// `StatusInputs::screen_failure_after`).
+pub fn supports_stop_failure(version: Option<&str>) -> bool {
+    let Some(v) = version else { return false };
+    let nums: Vec<u64> = v
+        .split(|c: char| !c.is_ascii_digit() && c != '.')
+        .find(|t| t.contains('.'))
+        .unwrap_or("")
+        .split('.')
+        .filter_map(|n| n.parse().ok())
+        .collect();
+    nums.len() >= 3 && (nums[0], nums[1], nums[2]) >= (2, 1, 295)
+}
+
 /// Settings JSON passed to `claude --settings`. Settings sources are merged by Claude Code,
 /// so the user's own hooks keep working; our statusLine takes precedence for this session.
-pub fn claude_session_settings(exe: &Path, run_dir: &Path, statusline: bool, details: bool) -> Value {
+pub fn claude_session_settings(exe: &Path, run_dir: &Path, statusline: bool, details: bool, stop_failure: bool) -> Value {
     // Forward slashes survive both cmd.exe and Git Bash quoting on Windows.
     let q = |p: &Path| format!("\"{}\"", p.to_string_lossy().replace('\\', "/"));
     let hook_cmd = format!("{} sink hook {}{}", q(exe), q(run_dir), if details { " --details" } else { "" });
     let mut hooks = Map::new();
-    for ev in HOOK_EVENTS {
+    for ev in HOOK_EVENTS.iter().filter(|e| stop_failure || **e != "StopFailure") {
         hooks.insert(
             ev.to_string(),
             json!([{ "hooks": [{ "type": "command", "command": hook_cmd, "timeout": 10 }] }]),
@@ -73,6 +91,19 @@ pub fn sanitize_hook(v: &Value, details: bool) -> Value {
         // Notification messages are short system strings ("Claude needs your permission…").
         m.insert("message".into(), cut(msg, 160));
     }
+    // StopFailure: the API error's type ("rate_limit", "model_not_found" …) and a short detail.
+    if let Some(e) = v.get("error").and_then(|x| x.as_str()) {
+        m.insert("error".into(), cut(e, 60));
+    }
+    match v.get("error_details") {
+        Some(Value::String(s)) => {
+            m.insert("error_details".into(), cut(s, 300));
+        }
+        Some(d) if !d.is_null() => {
+            m.insert("error_details".into(), cut(&d.to_string(), 300));
+        }
+        _ => {}
+    }
     if details {
         if let Some(input) = v.get("tool_input") {
             let mut t = Map::new();
@@ -92,7 +123,8 @@ pub fn sanitize_hook(v: &Value, details: bool) -> Value {
             m.insert("prompt".into(), cut(p, 300));
         }
         if let Some(p) = v.get("last_assistant_message").and_then(|x| x.as_str()) {
-            m.insert("last_assistant_message".into(), cut(p, 1500));
+            // Long enough for an operator's action block (a whole plan for the board).
+            m.insert("last_assistant_message".into(), cut(p, 24_000));
         }
     }
     m.insert("ts".into(), json!(chrono::Utc::now().timestamp_millis()));
@@ -211,15 +243,18 @@ mod tests {
 
     #[test]
     fn settings_json_registers_hooks_with_forward_slashes() {
-        let v = claude_session_settings(Path::new(r"C:\Program Files\Cockpit\ai-cockpit.exe"), Path::new(r"C:\Users\me\.ai-cockpit\run\s1"), true, false);
+        let v = claude_session_settings(Path::new(r"C:\Program Files\Cockpit\ai-cockpit.exe"), Path::new(r"C:\Users\me\.ai-cockpit\run\s1"), true, false, true);
         let cmd = v["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap();
         assert_eq!(cmd, r#""C:/Program Files/Cockpit/ai-cockpit.exe" sink hook "C:/Users/me/.ai-cockpit/run/s1""#);
         assert!(v["statusLine"]["command"].as_str().unwrap().contains("sink statusline"));
         for ev in HOOK_EVENTS {
             assert!(v["hooks"].get(*ev).is_some());
         }
-        let v2 = claude_session_settings(Path::new("a"), Path::new("b"), false, true);
+        let v2 = claude_session_settings(Path::new("a"), Path::new("b"), false, true, false);
         assert!(v2.get("statusLine").is_none());
+        assert!(v2["hooks"].get("StopFailure").is_none(), "only for CLIs known to accept it");
+        assert!(supports_stop_failure(Some("2.1.295 (Claude Code)")) && supports_stop_failure(Some("2.2.0")));
+        assert!(!supports_stop_failure(Some("2.1.120 (Claude Code)")) && !supports_stop_failure(None));
         assert!(v2["hooks"]["Stop"][0]["hooks"][0]["command"].as_str().unwrap().ends_with("--details"));
     }
 }

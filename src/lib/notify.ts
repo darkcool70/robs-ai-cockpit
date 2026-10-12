@@ -23,6 +23,32 @@ function trace(msg: string) {
   (window as unknown as { __notifyLog: string[] }).__notifyLog = log;
 }
 
+export interface OrbState {
+  show: boolean;
+  /** calm: green · working: blue · waiting: amber (needs you) · trouble: red */
+  mood: "calm" | "working" | "waiting" | "trouble";
+  total: number;
+  working: number;
+  waiting: number;
+  agents: { name: string; status: string }[];
+}
+
+/** Summary of all running agents for the ambient orb (pure apart from the store read). */
+export function orbOf(sessions: Session[], enabled: boolean, focused: boolean): OrbState {
+  const agents = sessions.filter((s) => s.kind === "agent" && s.runtime?.running);
+  const waiting = agents.filter((s) => !!s.runtime?.notice).length;
+  const working = agents.filter((s) => s.runtime?.status === "working").length;
+  const trouble = agents.some((s) => s.runtime?.status === "rate-limited" || s.runtime?.status === "failed" || s.runtime?.status === "error");
+  const mood = trouble ? "trouble" : waiting ? "waiting" : working ? "working" : "calm";
+  const label = (s: Session) => (s.runtime?.notice ? "needs you" : s.runtime?.status === "working" ? (s.runtime.currentActivity ?? "working") : s.runtime?.status === "waiting-for-input" ? "done, waiting" : (s.runtime?.status ?? ""));
+  return { show: enabled && !focused && agents.length > 0, mood, total: agents.length, working, waiting, agents: agents.slice(0, 8).map((s) => ({ name: s.name, status: label(s).slice(0, 60) })) };
+}
+
+function orbState(): OrbState {
+  const st = useApp.getState();
+  return orbOf(Object.values(st.sessions), st.settings.ambientOrb !== false, hasFocus());
+}
+
 function hasFocus(): boolean {
   try {
     return document.hasFocus() && !document.hidden;
@@ -86,6 +112,9 @@ async function send(s: Session, kind: HudNote["kind"], message: string) {
 
 const pushedTurn: Record<string, number> = {};
 
+/** Filled by the Pro edition: true while its "since you were away" push takes over the waiting push (one push, not two). */
+export const pushHooks: { ownsWaiting?: () => boolean } = {};
+
 function pushUrl(): string | null {
   const u = useApp.getState().settings.pushUrl;
   return typeof u === "string" && u.trim().startsWith("https://") ? u.trim() : null;
@@ -107,7 +136,7 @@ function pushEvent(s: Session, kind: HudNote["kind"], message: string) {
 function checkWaitingForPush() {
   const st = useApp.getState();
   const after = Number(st.settings.pushAfterMin ?? 5);
-  if (!pushUrl() || !after || hasFocus()) return;
+  if (!pushUrl() || !after || hasFocus() || pushHooks.ownsWaiting?.()) return;
   for (const s of Object.values(st.sessions)) {
     const rt = s.runtime;
     if (s.kind !== "agent" || !rt?.running || rt.status !== "waiting-for-input" || !rt.turnEndedAt) continue;
@@ -159,6 +188,9 @@ function onSessions() {
       void send(s, "limit", `${rt?.attention ?? "Usage limit reached."}${when}`);
     } else if (cur === "failed" && ["working", "waiting-for-input", "idle", "starting"].includes(before)) {
       void send(s, "failed", s.exitCode != null ? `Exit code ${s.exitCode}` : "");
+    } else if (cur === "error" && before !== "error") {
+      // an API / CLI error ended its turn (model not available, login, overloaded …)
+      void send(s, "failed", rt?.error?.message ?? rt?.attention ?? "");
     }
     if (rt?.notice && rt.notice !== lastNotice[s.id] && cur !== "working") {
       void send(s, "input", rt.notice);
@@ -179,10 +211,12 @@ export async function initNotify() {
   if (started) return;
   started = true;
   trace("init");
-  await listen<{ action: "show" | "reply" | "dictate"; sessionId: string; text?: string }>("hud-action", async (ev) => {
+  await listen<{ action: "show" | "reply" | "dictate" | "open"; sessionId: string; text?: string }>("hud-action", async (ev) => {
     const { action, sessionId, text } = ev.payload;
     const st = useApp.getState();
-    if (action === "show") {
+    if (action === "open") {
+      await api.focusMain().catch(() => {});
+    } else if (action === "show") {
       await api.focusMain().catch(() => {});
       st.showSession(sessionId);
     } else if (action === "reply" && text?.trim()) {
@@ -193,13 +227,23 @@ export async function initNotify() {
       await toggleDictation(sessionId);
     }
   });
+  // Ambient orb: the crew's state at a glance while another program is in front (calm technology).
+  const orb = () => void emitTo("hud", "hud-orb", orbState()).catch(() => {});
+  window.addEventListener("focus", orb);
+  window.addEventListener("blur", orb);
+  document.addEventListener("visibilitychange", orb);
+  orb();
   useApp.subscribe((st, prev) => {
+    if (st.sessions !== prev.sessions || st.settings !== prev.settings) orb();
     if (st.sessions !== prev.sessions) onSessions();
-    if (st.voice !== prev.voice) {
-      const name = st.voice.target ? st.sessions[st.voice.target]?.name : null;
+    if (st.voice !== prev.voice || st.speaking !== prev.speaking) {
+      // While nothing is recorded, an answer being read aloud shows as "speaking".
+      const speakingNow = st.voice.state === "idle" && !!st.speaking;
+      const name = speakingNow ? st.speaking!.name : st.voice.target ? st.sessions[st.voice.target]?.name : null;
       const picking = st.voice.state === "recording" && st.settings.voicePickWhileRecording !== false;
       const choices = picking ? voiceChoices().map((c) => ({ n: c.n, name: c.name, active: c.id === st.voice.target })) : [];
-      void emitTo("hud", "hud-voice", { state: st.voice.state, name, level: st.voice.level, show: !hasFocus(), choices }).catch(() => {});
+      const state = speakingNow ? "speaking" : st.voice.state;
+      void emitTo("hud", "hud-voice", { state, name, level: st.voice.level, show: !hasFocus(), choices, text: st.voice.text ?? null }).catch(() => {});
     }
   });
   onSessions();

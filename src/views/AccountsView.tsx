@@ -4,7 +4,9 @@ import { FolderOpen, KeyRound, LogIn, Plus, RefreshCw, Terminal, Trash2, Wand2 }
 import { useApp } from "../store";
 import { api, errMsg, type Account, type Provider, type QuotaWindow, type UsageSummary } from "../lib/api";
 import { ago, compact, currentWindows, resetLabel, windowLabel } from "../lib/format";
-import { Badge, Button, Card, Field, IconButton, Input, Meter, Modal, ProviderMark, SectionTitle, cx } from "../components/ui";
+import { Badge, Button, Card, Field, FreeBadge, IconButton, Input, Meter, Modal, ProviderMark, SectionTitle, cx } from "../components/ui";
+import { AGENT_PROVIDERS, PROVIDERS, isFreeTier, providerInfo } from "../lib/providers";
+import { AccountHealth } from "./AccountHealth";
 
 const AUTH: Record<string, { label: string; tone: "ok" | "warn" | "err" | "neutral" }> = {
   connected: { label: "Connected", tone: "ok" },
@@ -89,12 +91,16 @@ export function AccountsView() {
             <Card key={c.provider} className="flex items-center gap-3 px-3 py-2">
               <ProviderMark provider={c.provider} />
               <div className="min-w-0 flex-1">
-                <div className="text-[12.5px] font-medium">{c.provider === "claude" ? "Claude Code CLI" : "Codex CLI"}</div>
-                <div className="truncate text-[11px] text-faint" title={c.path ?? ""}>
-                  {c.path ? `${c.version ?? "unknown version"} · ${c.source} · ${c.path}` : "Not found — install it or set the path in Settings"}
+                <div className="flex items-center gap-1.5 text-[12.5px] font-medium">{providerInfo(c.provider)?.label ?? c.provider} CLI <FreeBadge provider={c.provider} /></div>
+                <div className="truncate text-[11px] text-faint" title={c.path ?? providerInfo(c.provider)?.install ?? ""}>
+                  {c.path
+                    ? `${c.version ?? "unknown version"} · ${c.source} · ${c.path}`
+                    : isFreeTier(c.provider)
+                      ? `Optional — install: ${providerInfo(c.provider)?.install}`
+                      : "Not found — install it or set the path in Settings"}
                 </div>
               </div>
-              <Badge tone={c.path ? "ok" : "err"}>{c.path ? "detected" : "missing"}</Badge>
+              <Badge tone={c.path ? "ok" : isFreeTier(c.provider) ? "neutral" : "err"}>{c.path ? "detected" : isFreeTier(c.provider) ? "not installed" : "missing"}</Badge>
             </Card>
           ))}
         </div>
@@ -110,20 +116,30 @@ export function AccountsView() {
           </Card>
         )}
 
-        {(["claude", "codex"] as const).map((prov) => {
+        {AGENT_PROVIDERS.map((prov) => {
           const list = accounts.filter((a) => a.provider === prov);
+          const info = PROVIDERS[prov];
+          const full = !!info.singleProfile && list.length > 0;
           return (
             <section key={prov} className="space-y-2">
               <SectionTitle
-                right={<Button size="sm" onClick={() => setAdding(prov)}><Plus size={12} /> Add {prov === "claude" ? "Claude" : "Codex"} account</Button>}
+                right={full ? undefined : <Button size="sm" onClick={() => setAdding(prov)}><Plus size={12} /> Add {info.label} account</Button>}
               >
-                <span className="flex items-center gap-2"><ProviderMark provider={prov} /> {prov === "claude" ? "Claude Code accounts" : "Codex accounts (ChatGPT)"} · {list.length}</span>
+                <span className="flex items-center gap-2">
+                  <ProviderMark provider={prov} /> {prov === "codex" ? "Codex accounts (ChatGPT)" : `${info.label} accounts`} · {list.length} <FreeBadge provider={prov} />
+                </span>
               </SectionTitle>
               {list.length === 0 ? (
                 <Card className="p-4 text-[12.5px] text-muted">
-                  No {prov === "claude" ? "Claude" : "Codex"} account yet.{" "}
+                  No {info.label} account yet.{" "}
                   <button className="text-accent hover:underline" onClick={() => setAdding(prov)}>Add one</button>
                   {prov === "codex" && " — Codex runs side by side with your Claude sessions."}
+                  {info.tier === "free" && (
+                    <span className="mt-1 block text-[11.5px] text-faint">
+                      {info.plan}. The cockpit gives it research crews and simple tasks first, so your subscriptions last longer.
+                      {!clis.find((c) => c.provider === prov)?.path && <> Install first: <code>{info.install}</code></>}
+                    </span>
+                  )}
                 </Card>
               ) : (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(360px,1fr))] gap-3">
@@ -143,6 +159,7 @@ export function AccountsView() {
           <ul className="list-disc space-y-1 pl-4">
             <li><b className="text-fg">Claude:</b> the documented statusLine JSON (<code>rate_limits.five_hour / seven_day</code>) delivered to the cockpit while a session runs. Only available for claude.ai subscribers and after the first response of a session.</li>
             <li><b className="text-fg">Codex:</b> the <code>rate_limits</code> recorded by Codex itself in its local session logs (primary/secondary windows).</li>
+            <li><b className="text-fg">Copilot / Antigravity (free tiers):</b> neither CLI writes its remaining allowance anywhere the cockpit may read — type <code>/usage</code> in the CLI. When a free allowance runs out, the session turns “rate-limited” and the work can move to another account.</li>
             <li>No private web endpoints are called. If no reliable value exists, the card says so — open the official <code>/status</code> (or <code>/usage</code>) view instead.</li>
           </ul>
         </Card>
@@ -151,6 +168,13 @@ export function AccountsView() {
     </div>
   );
 }
+
+const LOGIN_NOTE: Partial<Record<Provider, (name: string) => string>> = {
+  claude: (name) => `Login opens a fresh private browser window so you can choose the account for ${name}.`,
+  codex: () => `Codex opens your default browser. If it is signed in to the wrong ChatGPT account, use "Open login in private window" in the login pane, or the device code login.`,
+  copilot: () => `Copilot shows a one-time code and github.com/login/device — open it (or "Open login in private window") and sign in with your GitHub account. Copilot Free is included in every GitHub account.`,
+  antigravity: () => `On its first start agy asks how to sign in: choose Google sign-in, log in in the browser, paste the code back, then accept its terms and the folder trust question.`,
+};
 
 function AccountCard({ account: a, quota, tokens }: { account: Account; quota: QuotaWindow[]; tokens: number }) {
   const { openUtility, refreshAccounts, toast, createSession, activeProjectId } = useApp.getState();
@@ -163,6 +187,8 @@ function AccountCard({ account: a, quota, tokens }: { account: Account; quota: Q
     finally { setLoggingIn(false); }
   };
   const auth = AUTH[a.authStatus] ?? AUTH.unknown;
+  const info = providerInfo(a.provider);
+  const free = isFreeTier(a.provider);
   const check = async () => {
     setChecking(true);
     try {
@@ -201,12 +227,13 @@ function AccountCard({ account: a, quota, tokens }: { account: Account; quota: Q
   return (
     <Card className="flex flex-col">
       <div className="flex items-center gap-2 border-b border-line px-3 py-2">
-        <span className="h-2.5 w-2.5 rounded-full" style={{ background: a.color ?? (a.provider === "claude" ? "var(--color-claude)" : "var(--color-codex)") }} />
+        <span className="h-2.5 w-2.5 rounded-full" style={{ background: a.color ?? info?.color ?? "var(--color-codex)" }} />
         <span className="min-w-0">
           <span className="block text-[13.5px] font-semibold">{a.name}</span>
           {a.authEmail && <span className="block truncate text-[11px] text-muted" title={a.authOrg ?? undefined}>{a.authEmail}</span>}
         </span>
         <ProviderMark provider={a.provider} />
+        <FreeBadge provider={a.provider} />
         <Badge tone={auth.tone} title={a.authDetail ?? ""}>● {auth.label}</Badge>
         <div className="ml-auto flex">
           <IconButton title="Re-check login status" onClick={check} disabled={checking}>
@@ -217,10 +244,12 @@ function AccountCard({ account: a, quota, tokens }: { account: Account; quota: Q
         </div>
       </div>
       <div className="space-y-3 px-3 py-3">
+        <AccountHealth account={a} />
         {ordered.length === 0 ? (
           <div className="rounded border border-dashed border-line-strong px-2 py-2 text-[12px] text-muted">
-            Quota details available in <code>/status</code>
+            {free ? <>Free allowance: type <code>/usage</code> in the CLI</> : <>Quota details available in <code>/status</code></>}
             {a.provider === "claude" && <span className="text-faint"> — exact values appear here after the first reply of a cockpit session.</span>}
+            {free && <span className="text-faint"> — the CLI does not report it to the cockpit; a used-up allowance shows as “rate-limited”.</span>}
           </div>
         ) : (
           ordered.map((q) => (
@@ -253,7 +282,7 @@ function AccountCard({ account: a, quota, tokens }: { account: Account; quota: Q
                   <>{a.authEmail}{a.authOrg && <span className="text-faint"> · {a.authOrg}</span>}</>
                 ) : (
                   <span className="text-faint">
-                    {a.provider === "codex" ? "not reported by the Codex CLI" : a.authStatus === "logged-out" ? "not logged in" : "re-check the login to show it"}
+                    {a.provider === "codex" || a.provider === "antigravity" ? `not reported by the ${info?.label ?? "CLI"}` : a.authStatus === "logged-out" ? "not logged in" : "re-check the login to show it"}
                   </span>
                 )}
               </dd>
@@ -266,25 +295,25 @@ function AccountCard({ account: a, quota, tokens }: { account: Account; quota: Q
       </div>
       <div className="mt-auto flex flex-wrap gap-1.5 border-t border-line px-3 py-2">
         <Button size="sm" disabled={loggingIn} variant={a.authStatus === "connected" ? "default" : "primary"} onClick={() => void login()}>
-          <LogIn size={12} /> {loggingIn ? "Opening login…" : a.authStatus === "connected" ? "Log in again / switch account" : a.provider === "claude" ? "Log in with Claude" : "Log in with ChatGPT"}
+          <LogIn size={12} /> {loggingIn ? "Opening login…" : a.authStatus === "connected" ? (a.provider === "antigravity" ? "Open agy (sign-in)" : "Log in again / switch account") : info?.loginLabel ?? "Log in"}
         </Button>
         {a.provider === "codex" && (
           <Button size="sm" disabled={loggingIn} onClick={() => void login(true)} title="Shows a short code; open the link in any browser window (e.g. a private one) and sign in with the account you want">
             <KeyRound size={12} /> Device code login
           </Button>
         )}
-        <Button size="sm" onClick={() => void openUtility("status", a.id)} title={a.provider === "claude" ? "Opens Claude Code; type /status or /usage" : "Opens Codex; type /status"}>
-          <Terminal size={12} /> Open /status
+        <Button size="sm" onClick={() => void openUtility("status", a.id)} title={info?.quotaHint}>
+          <Terminal size={12} /> {free ? "Open /usage" : "Open /status"}
         </Button>
         <Button size="sm" variant="ghost" onClick={() => void createSession({ accountId: a.id, projectId: activeProjectId })}>
           <Plus size={12} /> New session
         </Button>
       </div>
       <p className="px-3 pb-3 text-[11px] text-muted">
-        {a.provider === "claude"
-          ? `Login opens a fresh private browser window so you can choose the account for ${a.name}.`
-          : `Codex opens your default browser. If it is signed in to the wrong ChatGPT account, use "Open login in private window" in the login pane, or the device code login.`}{" "}
-        Other profiles keep their own login.{a.managed ? "" : " This profile is the CLI's global one — external terminals share its login."}
+        {LOGIN_NOTE[a.provider]?.(a.name)}{" "}
+        {a.provider === "antigravity"
+          ? "agy keeps one Google login per Windows user (in the system keyring) — terminals outside the cockpit share it."
+          : <>Other profiles keep their own login.{a.managed ? "" : " This profile is the CLI's global one — external terminals share its login."}</>}
       </p>
     </Card>
   );
@@ -298,7 +327,14 @@ function AddAccountDialog({ onClose, initialProvider }: { onClose: () => void; i
   const [mode, setMode] = useState<"managed" | "existing">("managed");
   const [dir, setDir] = useState("");
   const [busy, setBusy] = useState(false);
-  const suggested = provider === "claude" ? `Claude ${"ABCDEFGH"[accounts.filter((a) => a.provider === "claude").length] ?? ""}`.trim() : accounts.some((a) => a.provider === "codex") ? "Codex 2" : "Codex";
+  const info = PROVIDERS[provider as keyof typeof PROVIDERS];
+  const single = !!info?.singleProfile;
+  const suggested = provider === "claude"
+    ? `Claude ${"ABCDEFGH"[accounts.filter((a) => a.provider === "claude").length] ?? ""}`.trim()
+    : provider === "codex"
+      ? accounts.some((a) => a.provider === "codex") ? "Codex 2" : "Codex"
+      : provider === "copilot" ? "Copilot Free" : provider === "antigravity" ? "Antigravity" : "Agent";
+  const taken = (p: Provider) => !!PROVIDERS[p as keyof typeof PROVIDERS]?.singleProfile && accounts.some((a) => a.provider === p);
 
   const submit = async (login: boolean) => {
     setBusy(true);
@@ -327,7 +363,7 @@ function AddAccountDialog({ onClose, initialProvider }: { onClose: () => void; i
           <Button variant="ghost" onClick={onClose}>Cancel</Button>
           <Button onClick={() => submit(false)} disabled={busy}>Add only</Button>
           <Button variant="primary" onClick={() => submit(true)} disabled={busy}>
-            <LogIn size={12} /> Add &amp; {provider === "claude" ? "Login with Claude" : "Login with ChatGPT / Codex"}
+            <LogIn size={12} /> Add &amp; {provider === "codex" ? "Login with ChatGPT / Codex" : info?.loginLabel ?? "Log in"}
           </Button>
         </>
       }
@@ -335,36 +371,49 @@ function AddAccountDialog({ onClose, initialProvider }: { onClose: () => void; i
       <div className="grid gap-3">
         <Field label="Provider">
           <div className="grid grid-cols-2 gap-2">
-            {(["claude", "codex"] as const).map((p) => (
+            {AGENT_PROVIDERS.map((p) => (
               <button
                 key={p}
                 type="button"
+                disabled={taken(p)}
+                title={taken(p) ? "This CLI keeps one login per Windows user — its profile already exists" : undefined}
                 onClick={() => setProvider(p)}
                 className={cx(
-                  "flex items-center gap-2 rounded border px-3 py-2 text-left",
+                  "flex items-center gap-2 rounded border px-3 py-2 text-left disabled:opacity-40",
                   provider === p ? "border-accent bg-accent/10" : "border-line-strong hover:bg-hover",
                 )}
               >
                 <ProviderMark provider={p} />
                 <span>
-                  <span className="block text-[12.5px] font-medium">{p === "claude" ? "Claude Code" : "Codex"}</span>
-                  <span className="block text-[11px] text-faint">{p === "claude" ? "Claude Pro / Max subscription" : "ChatGPT Plus / Pro subscription"}</span>
+                  <span className="flex items-center gap-1.5 text-[12.5px] font-medium">{PROVIDERS[p].label} <FreeBadge provider={p} /></span>
+                  <span className="block text-[11px] text-faint">{PROVIDERS[p].plan}</span>
                 </span>
               </button>
             ))}
           </div>
+          {isFreeTier(provider) && (
+            <p className="text-[11px] text-faint">
+              One account per person, as the provider intends. Free work (research crews, simple tasks) goes here first; reviews and hard coding stay on your subscriptions.
+            </p>
+          )}
         </Field>
         <Field label="Nickname">
           <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={suggested} autoFocus />
         </Field>
-        <Field label="Configuration directory">
+        {single ? (
+          <Field label="Configuration directory">
+            <p className="text-[11.5px] text-faint">
+              {info?.defaultDir} — {info?.label} keeps its login in the system keyring, so there is one profile per Windows user (no isolated copy).
+            </p>
+          </Field>
+        ) : <Field label="Configuration directory">
           <div className="grid gap-1.5">
             <label className="flex items-start gap-2 text-[12.5px]">
               <input type="radio" checked={mode === "managed"} onChange={() => setMode("managed")} className="mt-0.5" />
               <span>
                 New isolated profile <span className="text-faint">(recommended)</span>
                 <span className="block text-[11px] text-faint">
-                  ~/.ai-cockpit/profiles/{provider}/&lt;nickname&gt; — used as {provider === "claude" ? "CLAUDE_CONFIG_DIR" : "CODEX_HOME"}. You log in once with the official CLI.
+                  ~/.ai-cockpit/profiles/{provider}/&lt;nickname&gt; — used as {info?.configEnv}. You log in once with the official CLI.
                 </span>
               </span>
             </label>
@@ -373,13 +422,13 @@ function AddAccountDialog({ onClose, initialProvider }: { onClose: () => void; i
               <span>
                 Use an existing directory
                 <span className="block text-[11px] text-faint">
-                  Leave empty for the CLI default ({provider === "claude" ? "~/.claude" : "~/.codex"}) — reuses the login you already have. Never deleted by the cockpit.
+                  Leave empty for the CLI default ({info?.defaultDir}) — reuses the login you already have. Never deleted by the cockpit.
                 </span>
               </span>
             </label>
             {mode === "existing" && (
               <div className="flex gap-1.5 pl-5">
-                <Input className="flex-1 font-mono" value={dir} onChange={(e) => setDir(e.target.value)} placeholder={provider === "claude" ? "%USERPROFILE%\\.claude" : "%USERPROFILE%\\.codex"} />
+                <Input className="flex-1 font-mono" value={dir} onChange={(e) => setDir(e.target.value)} placeholder={`%USERPROFILE%${(info?.defaultDir ?? "~/.codex").slice(1).replace(/\//g, "\\")}`} />
                 <Button
                   onClick={async () => {
                     const d = await openDialog({ directory: true, title: "Choose config directory" });
@@ -391,7 +440,7 @@ function AddAccountDialog({ onClose, initialProvider }: { onClose: () => void; i
               </div>
             )}
           </div>
-        </Field>
+        </Field>}
       </div>
     </Modal>
   );
@@ -399,8 +448,9 @@ function AddAccountDialog({ onClose, initialProvider }: { onClose: () => void; i
 
 
 const CLI_PRESETS: { name: string; command: string; hint: string }[] = [
-  { name: "Gemini CLI", command: "gemini", hint: "npm i -g @google/gemini-cli" },
-  { name: "Qwen Code", command: "qwen", hint: "npm i -g @qwen-code/qwen-code" },
+  // Their free Google / Qwen logins ended in 2026 (docs/PROVIDERS.md): they need an API key now.
+  { name: "Gemini CLI", command: "gemini", hint: "npm i -g @google/gemini-cli — free Google login ended 18 Jun 2026: needs a Gemini API key (use Antigravity above for the free tier)" },
+  { name: "Qwen Code", command: "qwen", hint: "npm i -g @qwen-code/qwen-code — free Qwen OAuth ended 15 Apr 2026: point it at an API key, e.g. OpenRouter's free models" },
   { name: "Aider", command: "aider", hint: "pip install aider-chat" },
   { name: "OpenCode", command: "opencode", hint: "npm i -g opencode-ai" },
   { name: "Ollama (local)", command: "ollama run qwen3", hint: "ollama.com — runs offline" },

@@ -23,6 +23,8 @@ pub enum Signal {
     RateLimited,
     ApproachingLimit,
     AuthRequired,
+    /// An API / CLI error ended the turn (Codex "■ …", Claude Code "API Error: …").
+    TurnFailed,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize)]
@@ -37,7 +39,7 @@ pub struct Detection {
 
 static RATE_LIMITED: Lazy<Regex> = Lazy::new(|| {
     Regex::new(
-        r"(?i)(usage limit reached|you(?:'|’)?ve hit your (?:[\w-]+ ){0,2}limit|you have hit your (?:[\w-]+ ){0,2}limit|limit reached.{0,40}resets|rate[- ]limit(ed)? (exceeded|reached)|out of (extra )?usage|(5-hour|weekly|session) limit reached)",
+        r"(?i)(usage limit reached|you(?:'|’)?ve hit your (?:[\w-]+ ){0,2}limit|you have hit your (?:[\w-]+ ){0,2}limit|limit reached.{0,40}resets|rate[- ]limit(ed)? (exceeded|reached)|out of (extra )?usage|(5-hour|weekly|session) limit reached|you(?:'|’)?ve reached your (?:[\w-]+ ){0,2}(?:rate |usage |request )?limit|(?:daily |weekly |monthly )?quota (?:exceeded|exhausted|reached)|resource_exhausted|out of (?:ai )?credits|(?:ai )?credits? (?:are |have been )?(?:used up|exhausted))",
     )
     .unwrap()
 });
@@ -50,6 +52,10 @@ static AUTH: Lazy<Regex> = Lazy::new(|| {
     )
     .unwrap()
 });
+/// The final error line of a failed turn: Codex prints error events as "■ …", Claude Code as
+/// "⎿ API Error: …". Retries in progress and a user's interruption are not failures.
+static TURN_FAILED: Lazy<Regex> = Lazy::new(|| Regex::new(r"^(?:■\s+\S|(?:⎿\s*)?(?:Failed to authenticate\.\s*)?API Error\b)").unwrap());
+static NOT_FINAL: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)(interrupted|what to do differently|retrying|attempt \d+\s*/\s*\d+)").unwrap());
 static RESET: Lazy<Regex> = Lazy::new(|| {
     Regex::new(r"(?i)resets?( at| in)? ([0-9][0-9:apm\s.]*(\([^)]*\))?|[A-Z][a-z]{2,8}\s[0-9]{1,2}(,? [0-9:apm\s]+)?)").unwrap()
 });
@@ -66,6 +72,8 @@ pub fn scan(text: &str) -> Option<Detection> {
             Signal::RateLimited
         } else if AUTH.is_match(l) {
             Signal::AuthRequired
+        } else if TURN_FAILED.is_match(l) && !NOT_FINAL.is_match(l) {
+            Signal::TurnFailed
         } else if APPROACHING.is_match(l) {
             Signal::ApproachingLimit
         } else {
@@ -78,8 +86,9 @@ pub fn scan(text: &str) -> Option<Detection> {
             .filter(|s| !s.is_empty());
         let d = Detection { signal: sig, text: l.chars().take(200).collect(), reset_hint };
         let rank = |s: &Signal| match s {
-            Signal::RateLimited => 3,
-            Signal::AuthRequired => 2,
+            Signal::RateLimited => 4,
+            Signal::AuthRequired => 3,
+            Signal::TurnFailed => 2,
             Signal::ApproachingLimit => 1,
         };
         if best.as_ref().map(|b| rank(&d.signal) > rank(&b.signal)).unwrap_or(true) {
@@ -228,6 +237,48 @@ mod tests {
     fn detects_codex_limit() {
         let d = scan("■ You've hit your usage limit. Upgrade to Pro or try again at Sep 27, 9:14 PM.").unwrap();
         assert_eq!(d.signal, Signal::RateLimited);
+    }
+
+    #[test]
+    fn detects_free_tier_limits_of_copilot_and_antigravity() {
+        for line in [
+            "✗ You've reached your rate limit. Please try again later.",
+            "You've reached your monthly usage limit for Copilot Free.",
+            "Error: 429 RESOURCE_EXHAUSTED: Quota exceeded for model gemini-3.8-flash",
+            "Daily quota exhausted · resets in 3h 20m",
+            "You are out of AI credits for this month.",
+        ] {
+            assert_eq!(scan(line).map(|d| d.signal), Some(Signal::RateLimited), "{line}");
+        }
+        // talking about quotas is no limit
+        for line in ["Reading src/quota.ts", "The quota check returns early.", "credits.json updated"] {
+            assert!(scan(line).is_none(), "{line}");
+        }
+    }
+
+    #[test]
+    fn detects_failed_turns_but_not_retries_or_interrupts() {
+        let codex = "■ {\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.\"}}";
+        let screen = format!("› Erstelle hallo.txt\n\n{codex}\n\n› Ask Codex to do anything\n  gpt-6.1-sol medium · 100% context left");
+        let d = scan(&screen).unwrap();
+        assert_eq!((d.signal, d.text.as_str()), (Signal::TurnFailed, codex));
+        for line in [
+            "  ⎿  API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment.",
+            "API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)",
+            "⎿  Failed to authenticate. API Error: 401 OAuth access token has expired. Re-authenticate to continue.",
+            "■ stream disconnected before completion: error sending request",
+        ] {
+            assert_eq!(scan(line).unwrap().signal, Signal::TurnFailed, "{line}");
+        }
+        for line in [
+            "■ Conversation interrupted - tell the model what to do differently. Something went wrong? Hit `/feedback` to report the issue.",
+            "  ⎿  API Error (529 Overloaded) · Retrying in 5 seconds… (attempt 2/10)",
+            "The handler returns an API Error when the token is missing.",
+        ] {
+            assert!(scan(line).is_none(), "{line}");
+        }
+        // a usage limit stays a limit (it has its own recovery)
+        assert_eq!(scan("■ You've hit your usage limit. Upgrade to Pro or try again at Sep 27, 9:14 PM.").unwrap().signal, Signal::RateLimited);
     }
 
     #[test]

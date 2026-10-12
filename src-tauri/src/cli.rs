@@ -15,15 +15,26 @@ use crate::paths;
 pub enum Provider {
     Claude,
     Codex,
-    /// Any other terminal CLI (Gemini CLI, Aider, Ollama, …) configured by its command line.
+    /// GitHub Copilot CLI (`copilot`): GitHub login, Copilot Free plan included (docs/PROVIDERS.md).
+    Copilot,
+    /// Google Antigravity CLI (`agy`), successor of the Gemini CLI: Google login with a small free
+    /// quota. Its login lives in the system keyring, so there is one profile (the CLI default).
+    Antigravity,
+    /// Any other terminal CLI (Aider, OpenCode, Ollama, …) configured by its command line.
     Custom,
 }
+
+/// Providers whose own config dir the cockpit cannot switch (login in the OS keyring, no
+/// documented directory variable): one profile each, the CLI's default directory.
+pub const SINGLE_PROFILE: &[Provider] = &[Provider::Antigravity];
 
 impl Provider {
     pub fn parse(s: &str) -> Option<Self> {
         match s {
             "claude" => Some(Provider::Claude),
             "codex" => Some(Provider::Codex),
+            "copilot" => Some(Provider::Copilot),
+            "antigravity" => Some(Provider::Antigravity),
             "custom" => Some(Provider::Custom),
             _ => None,
         }
@@ -32,19 +43,38 @@ impl Provider {
         match self {
             Provider::Claude => "claude",
             Provider::Codex => "codex",
+            Provider::Copilot => "copilot",
+            Provider::Antigravity => "antigravity",
             Provider::Custom => "custom",
         }
     }
     pub fn binary_name(&self) -> &'static str {
-        self.as_str()
+        match self {
+            Provider::Antigravity => "agy",
+            _ => self.as_str(),
+        }
     }
     /// Env var that selects the isolated config directory.
     pub fn config_env(&self) -> &'static str {
         match self {
             Provider::Claude => "CLAUDE_CONFIG_DIR",
             Provider::Codex => "CODEX_HOME",
-            // Custom CLIs keep their own configuration; the cockpit sets nothing.
-            Provider::Custom => "",
+            Provider::Copilot => "COPILOT_HOME",
+            // Antigravity: no documented directory variable (login in the keyring); custom CLIs
+            // keep their own configuration. The cockpit sets nothing.
+            Provider::Antigravity | Provider::Custom => "",
+        }
+    }
+    /// Variables that would make this CLI bill an API key or use another login than the
+    /// profile's own (stripped from its environment in addition to `STRIPPED_ENV`).
+    pub fn stripped_env(&self) -> &'static [&'static str] {
+        match self {
+            // Copilot CLI takes a token from these before its own login (docs: COPILOT_GITHUB_TOKEN,
+            // GH_TOKEN, GITHUB_TOKEN in that order) — the profile's login must win.
+            Provider::Copilot => &["COPILOT_HOME", "COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN", "COPILOT_MODEL", "COPILOT_ALLOW_ALL"],
+            // Antigravity: an API key would switch from the free Google login to paid API usage.
+            Provider::Antigravity => &["GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTIGRAVITY_API_KEY", "ANTIGRAVITY_TOKEN", "GOOGLE_GEMINI_BASE_URL"],
+            _ => &[],
         }
     }
 }
@@ -127,6 +157,25 @@ fn candidate_paths(p: Provider) -> Vec<PathBuf> {
                     out.extend(found.into_iter().map(|x| x.1));
                 }
             }
+        }
+        Provider::Copilot => {
+            if let Some(appdata) = std::env::var_os("APPDATA") {
+                out.push(PathBuf::from(appdata).join("npm/copilot.cmd"));
+            }
+            if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+                // winget install GitHub.Copilot
+                out.push(PathBuf::from(local).join("Microsoft/WinGet/Links/copilot.exe"));
+            }
+        }
+        Provider::Antigravity => {
+            // install.ps1 puts it under %LOCALAPPDATA%\Antigravity (Linux/macOS: ~/.local/bin).
+            if let Some(local) = std::env::var_os("LOCALAPPDATA") {
+                let base = PathBuf::from(local).join("Antigravity");
+                out.push(base.join("agy.exe"));
+                out.push(base.join("bin/agy.exe"));
+            }
+            out.push(home.join(".local/bin/agy.exe"));
+            out.push(home.join(".local/bin/agy"));
         }
         // Resolved from the profile's own command line.
         Provider::Custom => {}
@@ -247,7 +296,8 @@ impl SessionOptions {
             let ok = match provider {
                 Provider::Claude => CLAUDE_EFFORTS.contains(&e.as_str()),
                 Provider::Codex => e.len() <= 16 && e.chars().all(|c| c.is_ascii_lowercase()),
-                Provider::Custom => true,
+                // no effort flag: ignored when the command is built
+                Provider::Copilot | Provider::Antigravity | Provider::Custom => true,
             };
             if !ok {
                 return Err(format!("Unsupported effort level {e}"));
@@ -265,6 +315,23 @@ impl SessionOptions {
         }
         Ok(())
     }
+}
+
+/** Longer system prompts are handed to the CLI as a file (see `prompt_file`). */
+const INLINE_PROMPT_MAX: usize = 6000;
+
+/** Writes a system prompt to `<root>/prompts/<sha256>.md` (once per content); `None` if that fails. */
+fn prompt_file(text: &str) -> Option<PathBuf> {
+    use sha2::{Digest, Sha256};
+    let hash = Sha256::digest(text.as_bytes()).iter().take(12).map(|b| format!("{b:02x}")).collect::<String>();
+    let dir = paths::root().join("prompts");
+    let file = dir.join(format!("{hash}.md"));
+    if file.is_file() {
+        return Some(file);
+    }
+    std::fs::create_dir_all(&dir).ok()?;
+    std::fs::write(&file, text).ok()?;
+    Some(file)
 }
 
 fn opt(o: &Option<String>) -> Option<&str> {
@@ -291,9 +358,17 @@ fn base_env(account: &AccountEnv) -> (Vec<(String, String)>, Vec<String>) {
         ("COLORTERM".to_string(), "truecolor".to_string()),
     ];
     // Custom CLIs may rely on API keys in the environment (that is how they log in).
-    let remove: Vec<String> = if account.provider == Provider::Custom { Vec::new() } else { STRIPPED_ENV.iter().map(|s| s.to_string()).collect() };
+    let remove: Vec<String> = if account.provider == Provider::Custom {
+        Vec::new()
+    } else {
+        STRIPPED_ENV.iter().chain(account.provider.stripped_env()).map(|s| s.to_string()).collect()
+    };
     if !account.uses_default_dir() && !account.provider.config_env().is_empty() {
         set.push((account.provider.config_env().to_string(), account.config_dir.to_string()));
+    }
+    if account.provider == Provider::Copilot {
+        // Like Codex's update prompt: updating stays the user's call outside the cockpit.
+        set.push(("COPILOT_AUTO_UPDATE".to_string(), "false".to_string()));
     }
     (set, remove)
 }
@@ -355,8 +430,17 @@ pub fn build_agent_command(l: &AgentLaunch) -> LaunchSpec {
                 args.push(f.into());
             }
             if let Some(p) = opt(&o.append_system_prompt) {
-                args.push("--append-system-prompt".into());
-                args.push(p.into());
+                // Windows caps a command line at 32 767 characters: a long persona goes through a file.
+                match (p.len() > INLINE_PROMPT_MAX).then(|| prompt_file(p)).flatten() {
+                    Some(f) => {
+                        args.push("--append-system-prompt-file".into());
+                        args.push(f.to_string_lossy().into_owned());
+                    }
+                    None => {
+                        args.push("--append-system-prompt".into());
+                        args.push(p.into());
+                    }
+                }
             }
             if o.chrome {
                 args.push("--chrome".into());
@@ -377,6 +461,10 @@ pub fn build_agent_command(l: &AgentLaunch) -> LaunchSpec {
                 args.push(m.into());
             }
             let o = l.options;
+            // Its "Update available" menu would block agents nobody is watching (reviews,
+            // night shift); updating stays the user's call outside the cockpit.
+            args.push("-c".into());
+            args.push("check_for_update_on_startup=false".into());
             if let Some(e) = opt(&o.effort) {
                 // Unquoted on purpose: the value survives cmd.exe (npm shim) and Codex falls
                 // back to the raw string when it is not valid TOML.
@@ -402,6 +490,30 @@ pub fn build_agent_command(l: &AgentLaunch) -> LaunchSpec {
                 args.push(d.into());
             }
         }
+        // Copilot / Antigravity: model, resume and extra directories only. The autonomy levels are
+        // deliberately NOT mapped to their approval flags: these CLIs keep their own approval
+        // prompts (the session shows "needs you", the operator can answer them). Whether to map
+        // them is the owner's decision — see docs/PROVIDERS.md.
+        Provider::Copilot => {
+            // Documented flags (docs.github.com Copilot CLI reference); `=` form so an optional
+            // value is never taken for the next argument.
+            if let SessionMode::Resume { session_id } = &l.mode {
+                args.push(format!("--resume={session_id}"));
+            }
+            if let Some(m) = l.model.filter(|m| !m.is_empty()) {
+                args.push(format!("--model={m}"));
+            }
+            for d in l.options.add_dirs.iter().map(|d| d.trim()).filter(|d| !d.is_empty()) {
+                args.push(format!("--add-dir={d}"));
+            }
+        }
+        Provider::Antigravity => {
+            // Google's codelab documents `--model`; no resume by id (each start is a new conversation).
+            if let Some(m) = l.model.filter(|m| !m.is_empty()) {
+                args.push("--model".into());
+                args.push(m.into());
+            }
+        }
         Provider::Custom => {}
     }
     // Provider::Custom: its own arguments arrive in `extra_args` (from the profile's command line).
@@ -422,8 +534,11 @@ pub fn build_login_command(binary: &str, account: &AccountEnv, cwd: &str, device
             }
             a
         }
-        // No standard login command: the tool itself runs and asks for its login.
-        Provider::Custom => Vec::new(),
+        // GitHub device / browser flow: prints a code and https://github.com/login/device.
+        Provider::Copilot => vec!["login".into()],
+        // No login command: agy asks for the Google sign-in on its first start. Custom tools
+        // likewise run and ask for their own login.
+        Provider::Antigravity | Provider::Custom => Vec::new(),
     };
     let (program, args) = wrap_program(binary, args);
     let (env_set, env_remove) = base_env(account);
@@ -435,7 +550,9 @@ pub fn build_status_command(binary: &str, account: &AccountEnv) -> LaunchSpec {
     let args: Vec<String> = match account.provider {
         Provider::Claude => vec!["auth".into(), "status".into(), "--json".into()],
         Provider::Codex => vec!["login".into(), "status".into()],
-        Provider::Custom => vec!["--version".into()],
+        // No status command: `--version` proves the install, the login is read from the
+        // profile's config (Copilot) or not knowable (Antigravity, keyring) — see commands.rs.
+        Provider::Copilot | Provider::Antigravity | Provider::Custom => vec!["--version".into()],
     };
     let (program, args) = wrap_program(binary, args);
     let (env_set, env_remove) = base_env(account);
@@ -700,7 +817,7 @@ mod tests {
             options: &SessionOptions::default(),
             extra_args: &[],
         });
-        assert_eq!(spec.args, vec!["resume", "019a-uuid"]);
+        assert_eq!(spec.args, vec!["resume", "019a-uuid", "-c", "check_for_update_on_startup=false"]);
         assert!(spec.env_set.contains(&("CODEX_HOME".into(), r"D:\cockpit\profiles\codex\main".into())));
         assert!(!spec.env_set.iter().any(|(k, _)| k == "CLAUDE_CONFIG_DIR"));
 
@@ -761,6 +878,15 @@ mod tests {
             model: None, display_name: None, settings_file: None, options: &full, extra_args: &[],
         });
         assert_eq!(spec.args, vec!["--dangerously-skip-permissions"]);
+        // a persona too long for a Windows command line goes through a file
+        let long = "x".repeat(INLINE_PROMPT_MAX + 1);
+        let big = SessionOptions { append_system_prompt: Some(long.clone()), ..Default::default() };
+        let spec = build_agent_command(&AgentLaunch {
+            binary: "claude", account: claude_acc("/p/a"), cwd: "/w", mode: SessionMode::New { session_id: None },
+            model: None, display_name: None, settings_file: None, options: &big, extra_args: &[],
+        });
+        assert_eq!(spec.args[0], "--append-system-prompt-file");
+        assert_eq!(std::fs::read_to_string(&spec.args[1]).unwrap(), long);
     }
 
     #[test]
@@ -771,7 +897,7 @@ mod tests {
             binary: "codex", account: acc.clone(), cwd: "/w", mode: SessionMode::Resume { session_id: "id".into() },
             model: None, display_name: Some("ignored"), settings_file: None, options: &o, extra_args: &[],
         });
-        assert_eq!(spec.args, vec!["resume", "id", "-c", "model_reasoning_effort=xhigh", "--approve-for-me", "--search", "--add-dir", "/x"]);
+        assert_eq!(spec.args, vec!["resume", "id", "-c", "check_for_update_on_startup=false", "-c", "model_reasoning_effort=xhigh", "--approve-for-me", "--search", "--add-dir", "/x"]);
         for (level, expect) in [
             ("plan", vec!["--sandbox", "read-only", "--ask-for-approval", "on-request"]),
             ("accept-edits", vec!["--sandbox", "workspace-write", "--ask-for-approval", "on-request"]),
@@ -782,7 +908,8 @@ mod tests {
                 binary: "codex", account: acc.clone(), cwd: "/w", mode: SessionMode::New { session_id: None },
                 model: None, display_name: None, settings_file: None, options: &o, extra_args: &[],
             });
-            assert_eq!(spec.args, expect, "{level}");
+            assert_eq!(spec.args[2..], expect, "{level}");
+            assert_eq!(spec.args[..2], ["-c", "check_for_update_on_startup=false"]);
         }
     }
 
@@ -856,5 +983,61 @@ mod custom_tests {
         assert_eq!(spec.args, vec!["--yolo".to_string()]);
         assert!(spec.env_remove.is_empty(), "API keys stay available to custom CLIs");
         assert!(!spec.env_set.iter().any(|(k, _)| k.is_empty()));
+    }
+
+    #[test]
+    fn free_tier_providers_parse_and_name_their_binaries() {
+        for (s, p, bin, env) in [
+            ("copilot", Provider::Copilot, "copilot", "COPILOT_HOME"),
+            ("antigravity", Provider::Antigravity, "agy", ""),
+        ] {
+            assert_eq!(Provider::parse(s), Some(p));
+            assert_eq!(p.as_str(), s);
+            assert_eq!(p.binary_name(), bin);
+            assert_eq!(p.config_env(), env);
+        }
+        assert!(SINGLE_PROFILE.contains(&Provider::Antigravity) && !SINGLE_PROFILE.contains(&Provider::Copilot));
+    }
+
+    #[test]
+    fn copilot_profile_gets_its_own_home_and_no_foreign_token() {
+        let dir = r"C:\Users\me\.ai-cockpit\profiles\copilot\github";
+        let acc = AccountEnv { provider: Provider::Copilot, config_dir: dir };
+        let o = SessionOptions { autonomy: Some("full".into()), effort: Some("high".into()), add_dirs: vec![r"C:\lib".into()], ..Default::default() };
+        let spec = build_agent_command(&AgentLaunch {
+            binary: "copilot", account: acc.clone(), cwd: "/w", mode: SessionMode::Resume { session_id: "5f2c-uuid".into() },
+            model: Some("auto"), display_name: Some("ignored"), settings_file: Some("ignored"), options: &o, extra_args: &[],
+        });
+        // no approval flags: the autonomy level is not mapped for Copilot (its own prompts stay)
+        assert_eq!(spec.args, vec!["--resume=5f2c-uuid", "--model=auto", r"--add-dir=C:\lib"]);
+        assert!(spec.env_set.contains(&("COPILOT_HOME".into(), dir.into())));
+        assert!(spec.env_set.contains(&("COPILOT_AUTO_UPDATE".into(), "false".into())));
+        for k in ["GH_TOKEN", "GITHUB_TOKEN", "COPILOT_GITHUB_TOKEN", "COPILOT_HOME", "ANTHROPIC_API_KEY"] {
+            assert!(spec.env_remove.iter().any(|r| r == k), "{k} must be stripped");
+        }
+        assert_eq!(build_login_command("copilot", &acc, "/w", false).args, vec!["login"]);
+        assert_eq!(build_status_command("copilot", &acc).args, vec!["--version"]);
+        // Claude / Codex keep GH_TOKEN (their agents may use the gh CLI)
+        let c = build_agent_command(&AgentLaunch {
+            binary: "claude", account: AccountEnv { provider: Provider::Claude, config_dir: "/p" }, cwd: "/w", mode: SessionMode::New { session_id: None },
+            model: None, display_name: None, settings_file: None, options: &SessionOptions::default(), extra_args: &[],
+        });
+        assert!(!c.env_remove.iter().any(|r| r == "GH_TOKEN"));
+    }
+
+    #[test]
+    fn antigravity_runs_with_its_default_profile_and_free_login() {
+        let def = paths::default_config_dir("antigravity");
+        let def = def.to_string_lossy();
+        let acc = AccountEnv { provider: Provider::Antigravity, config_dir: &def };
+        let o = SessionOptions { autonomy: Some("auto".into()), ..Default::default() };
+        let spec = build_agent_command(&AgentLaunch {
+            binary: "agy", account: acc.clone(), cwd: "/w", mode: SessionMode::New { session_id: None },
+            model: Some("gemini-3.8-flash"), display_name: None, settings_file: None, options: &o, extra_args: &[],
+        });
+        assert_eq!(spec.args, vec!["--model", "gemini-3.8-flash"]);
+        assert!(!spec.env_set.iter().any(|(k, _)| k.is_empty() || k.ends_with("_HOME")));
+        assert!(spec.env_remove.iter().any(|r| r == "GEMINI_API_KEY"), "an API key would bill instead of the free login");
+        assert!(build_login_command("agy", &acc, "/w", false).args.is_empty(), "agy asks for the Google login itself");
     }
 }

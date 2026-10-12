@@ -287,6 +287,18 @@ pub const MIGRATIONS: &[&str] = &[
         updated_at            TEXT NOT NULL
     );
     "#,
+    // assistants: what an assistant may do (advisor / builder / operator)
+    r#"
+    ALTER TABLE assistants ADD COLUMN power TEXT NOT NULL DEFAULT 'builder';
+    "#,
+    // boards: the shared whiteboard of you and your operator, one per project ("project:<id>")
+    r#"
+    CREATE TABLE boards (
+        scope      TEXT PRIMARY KEY,
+        data       TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+    );
+    "#,
 ];
 
 const WIDEN_PROVIDER_CHECK: &str = "@@widen_provider_check";

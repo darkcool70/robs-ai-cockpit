@@ -1,12 +1,14 @@
 pub mod activity;
 pub mod automation;
 pub mod cli;
+pub mod copilot;
 pub mod login_browser;
 pub mod commands;
 pub mod db;
 pub mod detect;
 pub mod error;
 pub mod extras;
+pub mod failure;
 pub mod git;
 pub mod hud;
 pub mod monitor;
@@ -17,6 +19,19 @@ pub mod pty;
 pub mod sink;
 pub mod store;
 pub mod stt;
+pub mod tts;
+pub mod tts_cloud;
+pub mod supertonic;
+pub mod secret;
+pub mod wake;
+pub mod web;
+pub mod filepreview;
+pub mod testrun;
+pub mod slidesrender;
+pub mod codemap;
+pub mod osint;
+pub mod browser;
+pub mod browser_ctl;
 pub mod update;
 pub mod usage;
 
@@ -105,7 +120,7 @@ pub fn run() {
     // Processes do not survive an app restart: anything recorded as live is now stopped.
     conn.execute(
         "UPDATE sessions SET status='stopped', ended_at=COALESCE(ended_at, last_activity_at)
-         WHERE status IN ('starting','working','waiting-for-input','idle','rate-limited')",
+         WHERE status IN ('starting','working','waiting-for-input','idle','rate-limited','error')",
         [],
     )
     .ok();
@@ -117,6 +132,10 @@ pub fn run() {
     let clis = commands::detect_all(&db);
     let stt = Arc::new(stt::Stt::default());
     let stt_exit = stt.clone();
+    let tts = Arc::new(tts::Tts::default());
+    let tts_exit = tts.clone();
+    let wake = Arc::new(wake::Wake::default());
+    let wake_exit = wake.clone();
 
     tauri::Builder::default()
         // Must come first: a second start only brings the running window to the front. Two
@@ -133,7 +152,7 @@ pub fn run() {
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(move |app| {
             let output_tx = commands::spawn_output_emitter(app.handle().clone());
-            app.manage(AppState { db: db.clone(), pty: pty.clone(), runtimes: runtimes.clone(), clis: parking_lot::Mutex::new(clis), output_tx, lifecycle: parking_lot::Mutex::new(()), stt: stt.clone(), remote: Arc::new(remote::Remote::default()) });
+            app.manage(AppState { db: db.clone(), pty: pty.clone(), runtimes: runtimes.clone(), clis: parking_lot::Mutex::new(clis), output_tx, lifecycle: parking_lot::Mutex::new(()), stt: stt.clone(), tts: tts.clone(), wake: wake.clone(), remote: Arc::new(remote::Remote::default()) });
             monitor::spawn_monitor(app.handle().clone(), db.clone(), pty.clone(), runtimes.clone());
             monitor::spawn_git_watch(app.handle().clone(), db.clone(), runtimes.clone());
             if let Err(e) = hud::create(app.handle()) {
@@ -205,8 +224,11 @@ pub fn run() {
             commands::pin_delete,
             commands::report_save,
             commands::remote_start,
+            commands::remote_set_keys,
             commands::remote_stop,
             commands::remote_status,
+            commands::remote_share_board,
+            commands::remote_share_digest,
             commands::update_info,
             commands::update_start,
             commands::update_apply,
@@ -241,6 +263,8 @@ pub fn run() {
             #[cfg(feature = "pro")]
             pro::commands::assistant_launch,
             #[cfg(feature = "pro")]
+            pro::commands::assistant_set_model,
+            #[cfg(feature = "pro")]
             pro::commands::pro_status,
             #[cfg(feature = "pro")]
             pro::commands::pro_activate,
@@ -256,6 +280,45 @@ pub fn run() {
             commands::stt_start,
             commands::stt_stop,
             commands::stt_cancel,
+            commands::stt_keep_recent,
+            commands::wake_start,
+            commands::wake_stop,
+            commands::wake_check,
+            commands::wake_busy,
+            commands::wake_running,
+            commands::user_idle_ms,
+            commands::link_preview,
+            commands::media_fetch,
+            commands::open_web_link,
+            commands::tts_status,
+            commands::board_get,
+            commands::board_save,
+            commands::board_export,
+            commands::board_image,
+            commands::board_pdf,
+            commands::web_search,
+            commands::file_preview,
+            commands::project_tests,
+            commands::project_build,
+            commands::code_scan,
+            commands::osint_lookup,
+            commands::browser_open,
+            commands::browser_snapshot,
+            commands::browser_act,
+            commands::browser_dock,
+            commands::browser_undock,
+            commands::browser_url,
+            commands::browser_pdf,
+            commands::file_stamps,
+            commands::pdf_bytes,
+            commands::pptx_slides,
+            commands::board_list,
+            commands::board_delete,
+            commands::tts_install,
+            commands::tts_warmup,
+            commands::tts_speak,
+            commands::tts_cloud_key,
+            commands::tts_release,
             commands::session_set_voice_hotkey,
             commands::git_status,
             commands::git_worktrees,
@@ -272,6 +335,8 @@ pub fn run() {
                     h.kill();
                 }
                 stt_exit.shutdown();
+                tts_exit.shutdown();
+                wake_exit.stop();
             }
         });
 }

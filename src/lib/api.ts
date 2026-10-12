@@ -1,8 +1,11 @@
 // Typed wrappers around the Rust command surface. Keep in sync with src-tauri/src/commands.rs.
 import { invoke } from "@tauri-apps/api/core";
 
-/** "custom": any other terminal CLI (Gemini CLI, Aider, Ollama …) started by its command line. */
-export type Provider = "claude" | "codex" | "custom";
+/**
+ * "copilot" (GitHub Copilot CLI) and "antigravity" (Google's agy) run on free tiers (src/lib/providers.ts).
+ * "custom": any other terminal CLI (Aider, OpenCode, Ollama …) started by its command line.
+ */
+export type Provider = "claude" | "codex" | "copilot" | "antigravity" | "custom";
 
 export type SessionStatus =
   | "idle"
@@ -10,8 +13,17 @@ export type SessionStatus =
   | "working"
   | "waiting-for-input"
   | "rate-limited"
+  /** an API / CLI error ended the turn (runtime.error says what) — not a finished turn */
+  | "error"
   | "stopped"
   | "failed";
+
+/** The error that ended an agent's turn (src-tauri/src/failure.rs). */
+export interface TurnError {
+  kind: "model" | "limit" | "auth" | "server" | "network" | "request" | "unknown";
+  message: string;
+  at: number;
+}
 
 export interface CliInfo {
   provider: Provider;
@@ -105,6 +117,8 @@ export interface RuntimeView {
   loginUrl: string | null;
   pendingInput: boolean;
   currentActivity?: string | null;
+  /** What it said so far in the running turn (before a tool call). */
+  interim?: string | null;
   lastMessage?: string | null;
   lastPrompt?: string | null;
   turnStartedAt?: number | null;
@@ -114,6 +128,8 @@ export interface RuntimeView {
   automation?: AutomationView | null;
   gitBranch?: string | null;
   gitChanged?: number | null;
+  /** The error that ended the last turn (status "error", or "rate-limited" for a limit). */
+  error?: TurnError | null;
 }
 
 export type AutomationMode = "queue" | "loop" | "goal";
@@ -181,6 +197,8 @@ export interface ProStatus {
   server: string;
 }
 
+export type AssistantPower = "advisor" | "builder" | "operator";
+
 /** A named agent with a face, a personality and a goal (see AssistantsView). */
 export interface Assistant {
   id: string;
@@ -200,6 +218,8 @@ export interface Assistant {
   supervisorModel: string | null;
   maxRounds: number;
   delaySec: number;
+  /** What it may do: advisor (talks, plans), builder (codes, goals), operator (steers the cockpit). */
+  power: AssistantPower;
   sessionId: string | null;
   sort: number;
   createdAt: string;
@@ -213,7 +233,7 @@ export interface Template {
   sort: number;
 }
 
-export type ActivityKind = "prompt" | "tool" | "file" | "done" | "limit" | "continue" | "loop" | "input" | "start" | "exit";
+export type ActivityKind = "prompt" | "tool" | "file" | "done" | "limit" | "continue" | "loop" | "input" | "start" | "exit" | "error";
 
 export interface Activity {
   ts: number;
@@ -425,6 +445,11 @@ export interface Pin {
 export interface RemoteInfo {
   url: string;
   port: number;
+  /** until when the link's key opens the page (ms) */
+  expires: number;
+  /** the view-only link for colleagues (board and operator answer, nothing to send) */
+  viewUrl: string | null;
+  viewExpires: number | null;
 }
 export interface UpdateInfo {
   repo: string | null;
@@ -535,6 +560,52 @@ export interface SttStatus {
   installing: boolean;
 }
 
+export interface LinkPreview {
+  url: string;
+  title: string;
+  description: string;
+  image: string | null;
+  site: string;
+  text: string;
+}
+
+export interface TtsVoice {
+  id: string;
+  label: string;
+  lang: "de" | "en";
+  hint: string;
+  sizeMb: number;
+  installed: boolean;
+  /** speaking styles of a voice with moods ("amused", "whisper" …) */
+  styles?: string[];
+  /** which engine speaks it (older backends: Piper) */
+  engine?: TtsEngineId;
+  /** also speaks English natively (Supertonic, multilingual Azure voices) */
+  multilingual?: boolean;
+}
+
+export type TtsEngineId = "piper" | "supertonic" | "azure";
+
+export interface TtsEngine {
+  id: TtsEngineId;
+  label: string;
+  /** downloaded (local) or a key stored (cloud) */
+  ready: boolean;
+  local: boolean;
+  sizeMb: number;
+  /** cloud: the region of the stored key (the key itself never reaches the UI) */
+  region: string | null;
+}
+
+export interface TtsStatus {
+  /** any engine ready */
+  engineInstalled: boolean;
+  voices: TtsVoice[];
+  engines?: TtsEngine[];
+  installing: boolean;
+  running: string | null;
+}
+
 export const api = {
   appInfo: () => invoke<AppInfo>("app_info"),
   detectClis: () => invoke<CliInfo[]>("detect_clis"),
@@ -614,9 +685,18 @@ export const api = {
   pinSave: (pin: Partial<Pin> & { text: string }) => invoke<Pin>("pin_save", { pin: { id: "", projectId: null, sessionId: null, sessionName: null, note: null, createdAt: "", ...pin } }),
   pinDelete: (id: string) => invoke<void>("pin_delete", { id }),
   reportSave: (name: string, content: string) => invoke<string>("report_save", { name, content }),
-  remoteStart: (port: number, key: string) => invoke<RemoteInfo>("remote_start", { port, key }),
+  /** `expires` (ms; missing: 24 h); an optional view-only key for colleagues with its own expiry. */
+  remoteStart: (port: number, key: string, expires?: number, viewKey?: string | null, viewExpires?: number) =>
+    invoke<RemoteInfo>("remote_start", { port, key, expires, viewKey: viewKey ?? null, viewExpires }),
+  /** New keys while the remote is on (the old ones stop at once); no view key: revoked. */
+  remoteSetKeys: (key: string, expires: number, viewKey: string | null, viewExpires?: number) =>
+    invoke<RemoteInfo>("remote_set_keys", { key, expires, viewKey, viewExpires }),
   remoteStop: () => invoke<void>("remote_stop"),
   remoteStatus: () => invoke<RemoteInfo | null>("remote_status"),
+  /** The open board as a read-only page for the phone remote; false while the remote is off. */
+  remoteShareBoard: (html: string, title: string, operator: string | null, answer: string | null) => invoke<boolean>("remote_share_board", { html, title, operator, answer }),
+  /** "Seit du weg bist" at the top of the phone page (no lines: you are back); false while the remote is off. */
+  remoteShareDigest: (since: number, lines: { kind: string; text: string; anchor?: string }[]) => invoke<boolean>("remote_share_digest", { since, lines }),
   updateInfo: (fetch = false) => invoke<UpdateInfo>("update_info", { fetch }),
   updateStart: (pull: boolean) => invoke<void>("update_start", { pull }),
   updateApply: (exe: string) => invoke<void>("update_apply", { exe }),
@@ -632,7 +712,7 @@ export const api = {
   exportSettings: (dest: string) => invoke<void>("export_settings", { dest }),
   deleteAppData: (confirm: string, includeProfiles: boolean) => invoke<void>("delete_app_data", { confirm, includeProfiles }),
 
-  hudLayout: (height: number) => invoke<void>("hud_layout", { height }),
+  hudLayout: (height: number, width?: number) => invoke<void>("hud_layout", { height, width }),
   focusMain: () => invoke<void>("focus_main"),
   recentFiles: (limit = 100, sessionId?: string) => invoke<RecentFile[]>("activity_recent_files", { limit, sessionId }),
   timeline: (sessionId?: string, limit = 200) => invoke<TimelineItem[]>("activity_timeline", { sessionId, limit }),
@@ -648,6 +728,8 @@ export const api = {
   assistantsList: () => invoke<Assistant[]>("assistants_list"),
   assistantSave: (input: Partial<Assistant> & { name: string; avatar: string }) => invoke<Assistant>("assistant_save", { input }),
   assistantDelete: (id: string) => invoke<void>("assistant_delete", { id }),
+  /** The model of the assistant's session for its next start (restart it afterwards; the conversation is kept). */
+  assistantSetModel: (id: string, model: string) => invoke<Session>("assistant_set_model", { id, model }),
   assistantLaunch: (id: string, goal?: string, chat = false) => invoke<{ session: Session; automation: Automation | null }>("assistant_launch", { id, goal, chat }),
   automationSave: (input: { id?: string; sessionId: string; name: string; mode: AutomationMode; prompts: string[]; repeat: number; delaySec: number; stopPhrase?: string | null; start: boolean; goal?: GoalConfig | null }) =>
     invoke<Automation>("automation_save", { input }),
@@ -663,6 +745,55 @@ export const api = {
   sttStart: (target: string) => invoke<void>("stt_start", { target }),
   sttStop: () => invoke<{ target: string; text: string; send: boolean }>("stt_stop"),
   sttCancel: () => invoke<void>("stt_cancel"),
+  wakeStart: (words: string[]) => invoke<void>("wake_start", { words }),
+  wakeStop: () => invoke<void>("wake_stop"),
+  /** The command after the wake phrase, or null when `text` would not wake it. */
+  wakeCheck: (text: string, words: string[]) => invoke<string | null>("wake_check", { text, words }),
+  wakeBusy: (busy: boolean) => invoke<void>("wake_busy", { busy }),
+  wakeRunning: () => invoke<boolean>("wake_running"),
+  /** Board: preview of a web page (title, description, picture URL, first paragraphs). */
+  linkPreview: (url: string) => invoke<LinkPreview>("link_preview", { url }),
+  /** Board: a picture from the web as data URL. */
+  mediaFetch: (url: string) => invoke<string>("media_fetch", { url }),
+  openWebLink: (url: string) => invoke<void>("open_web_link", { url }),
+  browserOpen: (url: string, title?: string) => invoke<string>("browser_open", { url, title }),
+  browserDock: (a: { label: string; url?: string; x: number; y: number; w: number; h: number; visible: boolean }) => invoke<void>("browser_dock", a),
+  browserUndock: (label: string) => invoke<void>("browser_undock", { label }),
+  browserUrl: (label: string) => invoke<string | null>("browser_url", { label }),
+  browserPdf: (label: string, name: string) => invoke<string>("browser_pdf", { label, name }),
+  browserAct: (action: Record<string, unknown>, label?: string) => invoke<Record<string, unknown>>("browser_act", { action, label }),
+  browserSnapshot: (label?: string, maxWidth?: number) => invoke<{ src: string; title: string }>("browser_snapshot", { label, maxWidth }),
+  osintLookup: (target: string) => invoke<{ kind: string; target: string; dns: { kind: string; value: string }[]; registrar?: string | null; registered?: string | null; expires?: string | null; nameservers: string[]; subdomains: string[]; firstSeen?: string | null; lastSeen?: string | null; network?: string | null; country?: string | null; city?: string | null; lat?: number | null; lon?: number | null; ip?: string | null; errors: string[] }>("osint_lookup", { target }),
+  /** Milliseconds since the last keyboard/mouse input in any program. */
+  userIdleMs: () => invoke<number>("user_idle_ms"),
+  /** Barge-in: keep only the last `ms` milliseconds of the running recording. */
+  sttKeepRecent: (ms: number) => invoke<void>("stt_keep_recent", { ms }),
+  ttsStatus: () => invoke<TtsStatus>("tts_status"),
+  /** Whiteboard JSON of a scope ("project:<id>"), null when empty. */
+  boardGet: (scope: string) => invoke<string | null>("board_get", { scope }),
+  boardSave: (scope: string, data: string) => invoke<void>("board_save", { scope, data }),
+  boardList: (prefix: string) => invoke<{ scope: string; updatedAt: string; title: string | null }[]>("board_list", { prefix }),
+  boardDelete: (scope: string) => invoke<void>("board_delete", { scope }),
+  /** Writes `<project>/.cockpit/BOARD.md`; returns its path. */
+  boardExport: (projectId: string, markdown: string) => invoke<string>("board_export", { projectId, markdown }),
+  boardImage: (projectId: string, png: string) => invoke<string>("board_image", { projectId, png }),
+  boardPdf: (projectId: string, title: string, pdf: string, open = true) => invoke<string>("board_pdf", { projectId, title, pdf, open }),
+  projectBuild: (projectId: string) => invoke<{ command: string; dir: string; ok: boolean; passed: number; failed: number; ms: number; tail: string; timedOut: boolean }[]>("project_build", { projectId }),
+  projectTests: (projectId: string) => invoke<{ command: string; dir: string; ok: boolean; passed: number; failed: number; ms: number; tail: string; timedOut: boolean }[]>("project_tests", { projectId }),
+  pdfBytes: (path: string) => invoke<ArrayBuffer>("pdf_bytes", { path }),
+  pptxSlides: (path: string) => invoke<string[]>("pptx_slides", { path }),
+  webSearch: (query: string) => invoke<{ title: string; url: string; snippet: string }[]>("web_search", { query }),
+  codeScan: (path: string) => invoke<{ root: string; files: { path: string; lines: number; imports: string[] }[]; truncated: boolean; manifests: string[] }>("code_scan", { path }),
+  fileStamps: (paths: string[]) => invoke<{ path: string; exists: boolean; modified: number; files: number }[]>("file_stamps", { paths }),
+  filePreview: (path: string) => invoke<{ kind: string; name: string; size: number; image?: string | null; text?: string | null; slides: string[]; pages?: number | null }>("file_preview", { path }),
+  ttsInstall: (voice: string) => invoke<void>("tts_install", { voice }),
+  ttsWarmup: (voice: string, speed?: number) => invoke<void>("tts_warmup", { voice, speed }),
+  /** WAV bytes of the spoken text. */
+  ttsSpeak: (text: string, voice: string, speed?: number, style?: string, lang?: "de" | "en") => invoke<ArrayBuffer>("tts_speak", { text, voice, speed, style, lang }),
+  /** Store (checked first) or remove (`key` null) the key of a cloud voice provider. */
+  ttsCloudKey: (provider: "azure", region: string | null, key: string | null) => invoke<void>("tts_cloud_key", { provider, region, key }),
+  /** Free an engine's memory after switching away from it. */
+  ttsRelease: (engine: TtsEngineId) => invoke<void>("tts_release", { engine }),
   sessionSetVoiceHotkey: (id: string, hotkey: string | null) => invoke<string | null>("session_set_voice_hotkey", { id, hotkey }),
 
   gitStatus: (path: string) => invoke<GitStatus>("git_status", { path }),

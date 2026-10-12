@@ -6,6 +6,8 @@ Robs AI Cockpit is **open core**:
 |---|---|---|
 | Terminals, overview, tasks, review, loops & queues, voice, usage, quota, notifications, … | ✅ | ✅ |
 | **Assistants**: characters, soul.md / agent.md, chat room, goals | — (info page) | ✅ |
+| **Operator**: an assistant that steers the cockpit by voice (starts agents, hands out work, reports back) | — | ✅ |
+| **Board**: shared whiteboard with the operator (plans, prompts, live agent cards, arrows) | — | ✅ |
 | **Goals**: supervisor model writes every next prompt | — | ✅ |
 | Price | free | free for 7 days, then monthly or yearly |
 
@@ -19,7 +21,7 @@ The Pro code lives in a separate private repository that is checked out at `./pr
 
 ```
 pro/
-  src/              Pro UI (AssistantsView, ProSettings), imported as "@pro/…"
+  src/              Pro UI (AssistantsView, ProSettings, operator, boot), imported as "@pro/…"
   src-tauri/        Rust module `pro` (assistants, goal supervisor, license)
   license-server/   Cloudflare Worker: Stripe checkout, webhooks, license tokens
 ```

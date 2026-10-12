@@ -2,15 +2,34 @@
 // **bold**, `code`. Builds React nodes (never innerHTML), so agent text cannot inject markup.
 import type { ReactNode } from "react";
 
-function inline(text: string, key: string): ReactNode[] {
+/** `[[id]]` references to things outside the text (board cards): their name, and what a click does. */
+export interface MdRefs {
+  resolve: (id: string) => string | null;
+  open: (id: string) => void;
+  hover?: (id: string) => void;
+}
+
+function inline(text: string, key: string, refs?: MdRefs): ReactNode[] {
   const out: ReactNode[] = [];
-  const re = /(`[^`]+`|\*\*[^*]+\*\*)/g;
+  const re = refs ? /(`[^`]+`|\*\*[^*]+\*\*|\[\[[\w-]{1,40}\]\])/g : /(`[^`]+`|\*\*[^*]+\*\*)/g;
   let last = 0;
   let m: RegExpExecArray | null;
   let i = 0;
   while ((m = re.exec(text))) {
     if (m.index > last) out.push(text.slice(last, m.index));
     const t = m[0];
+    if (refs && t.startsWith("[[")) {
+      const id = t.slice(2, -2);
+      const name = refs.resolve(id);
+      out.push(
+        // a card that is not there (any more) is left out — a bare id means nothing to a reader
+        name ? (
+          <button key={`${key}-${i++}`} className="md-ref" title={`Show “${name}” on the board`} onClick={() => refs.open(id)} onMouseEnter={() => refs.hover?.(id)}>{name}</button>
+        ) : null,
+      );
+      last = m.index + t.length;
+      continue;
+    }
     out.push(
       t.startsWith("`") ? (
         <code key={`${key}-${i++}`} className="rounded bg-hover px-1 py-px font-mono text-[0.9em]">{t.slice(1, -1)}</code>
@@ -24,7 +43,7 @@ function inline(text: string, key: string): ReactNode[] {
   return out;
 }
 
-export function Markdown({ text }: { text: string }) {
+export function Markdown({ text, refs }: { text: string; refs?: MdRefs }) {
   const blocks: ReactNode[] = [];
   const parts = text.split(/```/);
   parts.forEach((part, pi) => {
@@ -44,13 +63,13 @@ export function Markdown({ text }: { text: string }) {
       const k = `${pi}-${li}`;
       const bullet = line.match(/^\s*(?:[-*•]|\d+\.)\s+(.*)$/);
       if (bullet) {
-        list.push(<li key={k}>{inline(bullet[1], k)}</li>);
+        list.push(<li key={k}>{inline(bullet[1], k, refs)}</li>);
         return;
       }
       flush(`l${k}`);
       const h = line.match(/^#{1,4}\s+(.*)$/);
-      if (h) blocks.push(<p key={k} className="mt-1.5 font-semibold">{inline(h[1], k)}</p>);
-      else if (line.trim()) blocks.push(<p key={k}>{inline(line, k)}</p>);
+      if (h) blocks.push(<p key={k} className="mt-1.5 font-semibold">{inline(h[1], k, refs)}</p>);
+      else if (line.trim()) blocks.push(<p key={k}>{inline(line, k, refs)}</p>);
       else blocks.push(<div key={k} className="h-1.5" />);
     });
     flush(`l${pi}-end`);

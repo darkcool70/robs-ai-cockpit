@@ -666,6 +666,7 @@ const KIND_STYLE: Record<string, string> = {
   input: "text-warn",
   limit: "text-warn",
   loop: "text-accent",
+  error: "text-err",
 };
 
 function Timeline({ items }: { items: TimelineItem[] }) {
@@ -678,7 +679,7 @@ function Timeline({ items }: { items: TimelineItem[] }) {
           <span className="text-faint">{new Date(a.ts).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}</span>{" "}
           <span className="text-muted">{sessions[a.sessionId]?.name ?? a.sessionName ?? "session"}</span>{" "}
           <span className={cx(KIND_STYLE[a.kind] ?? "text-muted")}>
-            {a.kind === "prompt" ? "▸ " : a.kind === "done" ? "✓ " : a.kind === "input" ? "⚠ " : ""}
+            {a.kind === "prompt" ? "▸ " : a.kind === "done" ? "✓ " : a.kind === "input" ? "⚠ " : a.kind === "error" ? "✗ " : ""}
             {a.kind === "done" ? (a.text ? a.text.slice(0, 140) + (a.text.length > 140 ? "…" : "") : "finished") : a.text}
           </span>
         </li>

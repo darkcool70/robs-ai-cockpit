@@ -6,7 +6,7 @@ import { useApp, type View } from "../store";
 import { Button, Kbd, cx } from "./ui";
 
 /** Bump when the tour gains steps worth showing again after an update. */
-export const TOUR_VERSION = 1;
+export const TOUR_VERSION = 2;
 
 interface Step {
   icon: typeof Gauge;
@@ -80,11 +80,14 @@ const STEPS: Step[] = [
   },
   {
     icon: Mic,
-    title: "Sprache",
-    view: "settings",
-    cta: "Voice-Einstellungen",
+    title: "Sprache: sprechen statt tippen",
+    view: "voice",
+    cta: "Voice-Reiter öffnen",
     body: (
       <ul className="list-disc space-y-1 pl-4">
+        <li>Sprechen, kurz Pause – der Text geht von selbst raus (<Kbd>Esc</Kbd> behält ihn), die Antwort wird vorgelesen. Natürliche Stimmen im Reiter <b>Voice</b>.</li>
+        <li>„Status“ / „Was ist los?“ liefert sofort einen gesprochenen Lagebericht aller Agenten.</li>
+        <li>Pro: ein <b>Operator</b>-Assistent steuert alle Agenten per Sprache – startet, verteilt, beobachtet und meldet sich, wenn etwas fertig ist.</li>
         <li>Hauptkürzel diktiert ins aktive Fenster; <Kbd>Alt Umschalt 1…8</Kbd> direkt in Fenster 1–8.</li>
         <li>Während der Aufnahme: <Kbd>1</Kbd>–<Kbd>8</Kbd> oder <Kbd>←</Kbd> <Kbd>→</Kbd> wechselt das Ziel, <Kbd>Enter</Kbd> sendet, <Kbd>Esc</Kbd> bricht ab.</li>
         <li>Sprachbefehle: „Fenster 3 stopp“, „Fenster 2 groß“, „alle weiter“, „zeig Aufgaben“. Mit Namen ansprechen: „Claude B, …“.</li>

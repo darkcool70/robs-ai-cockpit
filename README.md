@@ -4,14 +4,24 @@
 
 # Robs AI Cockpit
 
-**Run several official Claude Code and OpenAI Codex CLI sessions side by side — across multiple
-accounts — with notifications, loops, voice input, token analytics and quota visibility.**
+**Run several official Claude Code, OpenAI Codex and GitHub Copilot CLI sessions side by side —
+across multiple accounts — with an AI operator you talk to, a shared whiteboard, notifications,
+natural voices, token analytics and quota visibility.**
 
 [![CI](https://github.com/darkcool70/robs-ai-cockpit/actions/workflows/ci.yml/badge.svg)](https://github.com/darkcool70/robs-ai-cockpit/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/darkcool70/robs-ai-cockpit?include_prereleases&sort=semver)](https://github.com/darkcool70/robs-ai-cockpit/releases)
 [![License: Apache-2.0](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](LICENSE)
 ![Platform: Windows 11](https://img.shields.io/badge/platform-Windows%2011-0078D6)
 ![Built with Tauri 2](https://img.shields.io/badge/built%20with-Tauri%202-24C8DB)
+
+<!-- Website URL: GitHub Pages from /docs on main. Update here if a custom domain is added. -->
+<a href="https://darkcool70.github.io/robs-ai-cockpit/"><img src="https://img.shields.io/badge/Visit%20Website-2fd67a?style=for-the-badge&logo=googlechrome&logoColor=04120b&labelColor=2fd67a&color=2fd67a" alt="Visit Website" height="36" /></a>
+&nbsp;
+<a href="https://github.com/darkcool70/robs-ai-cockpit/releases/latest"><img src="https://img.shields.io/badge/Download%20for%20Windows-0078D6?style=for-the-badge" alt="Download for Windows" height="36" /></a>
+&nbsp;
+<a href="https://github.com/darkcool70/robs-ai-cockpit/stargazers"><img src="https://img.shields.io/github/stars/darkcool70/robs-ai-cockpit?style=for-the-badge&logo=github&label=Star%20on%20GitHub&color=e3b341" alt="Star on GitHub" height="36" /></a>
+
+<sub>If the cockpit saves you time, a ⭐ helps other developers find it.</sub>
 
 </div>
 
@@ -30,6 +40,14 @@ needs you, and reads their local logs (read-only) to show what happened.
 
 **No backend. No telemetry. No API keys. No stored credentials.**
 
+## Demo
+
+<!-- TODO: replace with docs/images/demo.gif (≈30 s, ≤ 10 MB): four agents start, one finishes
+     and a pop-up appears, reply by voice, the overview shows quota. -->
+> 🎬 **Demo GIF coming soon.** A 30-second look at four agents working side by side: a pop-up
+> when one finishes, a reply by voice, and the quota overview. Until then, take the
+> [tour below](#a-tour) or visit the [website](https://darkcool70.github.io/robs-ai-cockpit/).
+
 ## Why?
 
 Running one coding agent is easy. Running four gets messy: terminals everywhere, you miss the
@@ -37,6 +55,35 @@ moment one is done, one account hits its limit while another sits idle, and nobo
 was changed where. The cockpit turns that into one calm dashboard.
 
 ## A tour
+
+### Atlas: an AI operator you talk to, on a shared whiteboard · *Pro* · new in 0.4
+<img src="docs/images/atlas-present.jpg" alt="Atlas presents a board section by section: a large section title, the spoken words as subtitles, the chat with card references" width="100%" />
+
+Talk or type to **Atlas**, your operator. It researches, plans, hands work to your agents and lays
+everything out on a **whiteboard that thinks in sections**: *Goal & context · Sources · Numbers ·
+Findings · Options · Open questions · Decision · Next steps*, left to right, the way a project lead
+runs a board. New topics open a chapter to the right; cards you placed yourself stay where you put
+them.
+
+* **Like a good presenter:** the result comes first, then why. *"Stell es mir vor wie in einem
+  Meeting"* starts a presentation, and the slides follow its words section by section. *"Warum?"*
+  highlights the evidence on the board and corrects cards when something was wrong.
+* **Fast, then thorough:** Atlas starts on Claude Haiku 5.5 and asks before it switches to Sonnet
+  or Opus for harder work. Something shows up on the board within half a second, and it says what
+  it is doing while you wait.
+* **Speaks when it makes sense:** answers to spoken questions are read aloud in natural offline
+  voices. *Stumm · Kurz · Normal · Alles* in one click, or say *"sprich weniger"*.
+* **A calm board:** text never leaves its card, arrows run around cards and carry meaning
+  (supports, contradicts, leads to), a ribbon toolbar groups every tool, and a trackpad pinch zooms
+  smoothly. Light and dark.
+* **Real work on it:** notes, sources with live web pages pinned to the board, numbers, charts,
+  tables, hypotheses with evidence for and against, decisions, tasks with ready-to-run prompts,
+  live agent terminals. A **crew** of agents works in separate git worktrees, gets reviewed, and
+  "Merge all" runs the tests on the main tree.
+
+<img src="docs/images/atlas-board.png" alt="A research board in sections from left to right: goal and context, sources, findings, options, open questions, decision, next steps" width="100%" />
+
+<img src="docs/images/atlas-dashboard.png" alt="A dashboard board: key numbers, a line chart, a channel donut chart and tables in the calm board style" width="100%" />
 
 ### Every agent in its own live terminal
 Up to **8 panes** in a grid or as tabs. Each one runs the real CLI and stays fully interactive:
@@ -86,6 +133,10 @@ Press **Alt+Shift+Space** from any program, speak, and release. The text lands i
 agent. Press `1`–`8` while recording to switch the target, and say *"…absenden"* to press Enter
 for you. Spoken commands such as *"Fenster 3 stopp"* or *"alle weiter"* control the panes.
 Transcription runs **locally** with whisper.cpp; audio never leaves your computer.
+
+Answers can come back as speech in **natural voices that run offline** on your PC (Supertonic 3,
+five male and five female voices, German and English), with Piper as a lightweight fallback and
+Azure voices as an opt-in with your own key.
 
 ### Hand out work with the task board
 <img src="docs/images/tasks.png" alt="Task board with open, running, review and done columns and agents on the right" width="100%" />
@@ -154,7 +205,9 @@ at the right moment. You can see it in the top-left pane above: *rate limited ·
   * hang detection
   * daily token budgets per project
 * **More ways to work**:
-  * other terminal CLIs as agents (Gemini CLI, Aider, Ollama …)
+  * free accounts too: **GitHub Copilot CLI** (Copilot Free) with its own profiles and limit
+    failover, and the Antigravity CLI — research crews use free accounts first
+  * other terminal CLIs as agents (Aider, Ollama …)
   * phone remote in your home network (secret link)
   * reading answers aloud
   * dropping files onto a pane
@@ -190,6 +243,21 @@ at the right moment. You can see it in the top-left pane above: *rate limited ·
   runs locally with whisper.cpp. Voice detection guards against hallucinated text. There are also
   vocabulary hints and microphone selection, and the model is a one-time, checksum-verified
   download.
+* **Voice control (Voice tab)**: speak, pause, and the text goes out on its own (a short countdown
+  lets Esc keep it). Answers come back as speech in natural offline neural voices (Piper; German
+  and English, with Natural / Jarvis / Robot effects), with sci-fi signals and short spoken
+  callouts. “Status” gives an instant spoken report of all agents; conversations listen again after
+  each answer and go to standby on silence. Natural offline voices (Supertonic 3) with a „Klang“
+  setting, Piper as fallback, Azure as an opt-in; how much it talks: Stumm · Kurz · Normal · Alles,
+  also by voice ([docs/VOICE_LANGUAGE.md](docs/VOICE_LANGUAGE.md)).
+* **Operator Atlas (Pro)**: an assistant that steers the cockpit for you — it starts agents in their
+  own worktrees on the account with the most quota left, hands out work, watches the agents and
+  tells you by voice when they are done. Risky steps wait for your “yes”. It works with you on a
+  shared **whiteboard in sections** (goal → sources → findings → options → decision → next steps),
+  presents it like a person in a meeting, shows the evidence when you ask why, and keeps one truth
+  on the board. Starts fast on Haiku 5.5 and asks before switching to a bigger model.
+* **Phone remote**: follow and steer from your phone in your home network (keys with expiry,
+  view-only links).
 * **Git**: an inspector with branch, HEAD, dirty files and diff stats. You can create isolated
   `.worktrees/<name>` per agent, and removal is safe (dirty worktrees are refused).
 * **History**: every session with project, agent, account, model, duration and tokens, with
@@ -212,11 +280,13 @@ at the right moment. You can see it in the top-left pane above: *rate limited ·
 
 ## Robs AI Cockpit Pro
 
-Assistants and goals are **Pro** features. **Coming soon:**
+The operator **Atlas** with its whiteboard, assistants and goals are **Pro** features. The download
+includes them:
 * **7 days free**, no account and no card needed.
 * After that, a **monthly or yearly subscription**: buy it in the app (Settings → Pro) and
   paste the license key.
-* The rest of the cockpit stays free and open source; the current download is the free edition.
+* Everything else (terminals, accounts, notifications, voice, tasks, loops, usage, quota) stays
+  free and open source, also after the trial.
 
 Building from source gives the open-source edition without Pro. How the open-core split works:
 [docs/PRO.md](docs/PRO.md).
@@ -265,7 +335,7 @@ Prerequisites (Node 22+, pnpm 10, Rust stable, Visual Studio Build Tools) and de
   official CLIs.
 * API-key environment variables are stripped from every spawned CLI, so your subscription logins
   are used and you are never billed per token by accident.
-* The only network traffic the cockpit itself causes is opt-in: the voice model download, phone
+* The only network traffic the cockpit itself causes is opt-in: the voice model and voice downloads, phone
   push and phone remote, plus, in Pro, the license check. The license check sends only the key and a
   random device id. See [docs/SECURITY.md](docs/SECURITY.md).
 

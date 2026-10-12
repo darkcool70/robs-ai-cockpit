@@ -36,6 +36,13 @@ pub struct StatusInputs {
     /// Latest provider state: (working?, timestamp).
     pub provider_state: Option<(bool, i64)>,
     pub detection: Option<(Signal, i64)>,
+    /// Kind of the error that ended the last turn, as the provider reported it (failure.rs);
+    /// cleared by the provider when the next turn starts.
+    pub turn_error: Option<String>,
+    /// The provider's hooks cannot report a failed turn (Claude Code without the `StopFailure`
+    /// hook): an error line on screen then counts when it appeared after this time — the last
+    /// hook showing the turn went on or ended normally.
+    pub screen_failure_after: Option<i64>,
 }
 
 pub fn compute_status(i: &StatusInputs) -> (&'static str, Option<String>) {
@@ -46,10 +53,22 @@ pub fn compute_status(i: &StatusInputs) -> (&'static str, Option<String>) {
     if !i.running {
         return ("stopped", None);
     }
+    // A failed turn is not a finished one: nothing must treat it as done (review, "fertig").
+    if let Some(kind) = &i.turn_error {
+        return if kind == "limit" {
+            ("rate-limited", Some("Usage limit reached".into()))
+        } else {
+            ("error", Some(crate::failure::label(kind).into()))
+        };
+    }
     let mut attention = None;
     if let Some((sig, t)) = &i.detection {
         let fresh = *t >= i.last_input_ms;
         match sig {
+            // Only without provider turn signals: with them, the provider reports the error itself
+            // (an "API Error" line inside a tool's output must not fail a turn that goes on).
+            // Hooks without StopFailure: the line counts unless a later hook shows the turn went on.
+            Signal::TurnFailed if fresh && (i.provider_state.is_none() || i.screen_failure_after.is_some_and(|w| *t > w)) => return ("error", Some(crate::failure::label("unknown").into())),
             Signal::RateLimited if fresh => return ("rate-limited", Some("Usage limit reached".into())),
             Signal::AuthRequired if fresh => {
                 return ("waiting-for-input", Some("Authentication required".into()))
@@ -110,6 +129,8 @@ pub struct RuntimeView {
     pub pending_input: bool,
     /// What the agent is doing right now ("Editing store.ts", "Running npm test").
     pub current_activity: Option<String>,
+    /// What it said so far in the running turn (a sentence before a tool call) — spoken at once.
+    pub interim: Option<String>,
     /// The agent's last answer (excerpt), shown in notifications and the overview.
     pub last_message: Option<String>,
     /// The last prompt of this session (excerpt).
@@ -125,6 +146,8 @@ pub struct RuntimeView {
     pub git_branch: Option<String>,
     /// Uncommitted files in the working directory's repository.
     pub git_changed: Option<usize>,
+    /// The error that ended the last turn (status "error", or "rate-limited" for a limit).
+    pub error: Option<crate::failure::TurnError>,
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq)]
@@ -190,12 +213,20 @@ pub struct Runtime {
     session_started: bool,
     hook_offset: u64,
     last_hook: Option<(bool, i64)>,
+    /// Claude: the `StopFailure` hook is registered for this run (sink::supports_stop_failure).
+    /// Without it a failed turn sends no hook, so the error line on screen has to tell.
+    pub stop_failure: bool,
+    /// Claude: time of the last hook showing the turn went on or ended normally
+    /// (prompt, tool use, Stop) — an error line on screen before it is not the turn's end.
+    turn_hook_ms: i64,
     statusline_mtime: i64,
     rollout: Option<PathBuf>,
     rollout_offset: u64,
     rollout_state: codex::FileState,
     rollout_last: Option<(bool, i64)>,
     last_search: i64,
+    /// Copilot: the last answer that requested no tools (its turn's final words), until the turn ends.
+    copilot_answer: Option<String>,
     pub view: RuntimeView,
     last_db_touch: i64,
     /// Detection time of the last limit message recorded as a quota snapshot.
@@ -204,6 +235,9 @@ pub struct Runtime {
     submit_check: Option<SubmitCheck>,
     /// A goal supervisor is evaluating the last answer (background CLI call).
     pub supervising: bool,
+    /// The provider reported that an error ended the last turn (Codex rollout, Claude
+    /// StopFailure); cleared when the provider starts the next turn.
+    pub turn_error: Option<crate::failure::TurnError>,
 }
 
 /// Typed text only counts as sent once the CLI starts working on it. If it still sits in the
@@ -254,12 +288,15 @@ impl Runtime {
             session_started: false,
             hook_offset: 0,
             last_hook: None,
+            stop_failure: false,
+            turn_hook_ms: 0,
             statusline_mtime: 0,
             rollout: None,
             rollout_offset: 0,
             rollout_state: codex::FileState::default(),
             rollout_last: None,
             last_search: 0,
+            copilot_answer: None,
             view: RuntimeView {
                 id: id.into(),
                 status: "starting".into(),
@@ -276,6 +313,7 @@ impl Runtime {
                 login_url: None,
                 pending_input: false,
                 current_activity: None,
+                interim: None,
                 last_message: None,
                 last_prompt: None,
                 turn_started_at: None,
@@ -285,11 +323,30 @@ impl Runtime {
                 automation: None,
                 git_branch: None,
                 git_changed: None,
+                error: None,
             },
             last_db_touch: 0,
             limit_recorded: None,
             submit_check: None,
             supervising: false,
+            turn_error: None,
+        }
+    }
+
+    /// See `StatusInputs::screen_failure_after`: only a Claude agent whose hooks run without
+    /// StopFailure (an older CLI) relies on the error line on screen.
+    pub fn screen_failure_after(&self) -> Option<i64> {
+        (self.provider == Provider::Claude && self.kind == "agent" && self.hooks && !self.stop_failure).then_some(self.turn_hook_ms)
+    }
+
+    /// Whether the provider reports turns itself: Claude's hooks, Codex's rollout, Copilot's
+    /// event log once it was found (before that, and for Antigravity / custom CLIs, the screen).
+    pub fn provider_signals(&self) -> bool {
+        match self.provider {
+            Provider::Claude => self.hooks,
+            Provider::Codex => true,
+            Provider::Copilot => self.rollout.is_some(),
+            Provider::Antigravity | Provider::Custom => false,
         }
     }
 }
@@ -316,9 +373,18 @@ fn poll_claude(rt: &mut Runtime, db: &Db) {
             let event = v.get("hook_event_name").and_then(|x| x.as_str()).unwrap_or("");
             match event {
                 "UserPromptSubmit" | "PreToolUse" | "PostToolUse" => rt.last_hook = Some((true, ts)),
-                "Stop" | "Notification" | "SessionEnd" => rt.last_hook = Some((false, ts)),
+                "Stop" | "StopFailure" | "Notification" | "SessionEnd" => rt.last_hook = Some((false, ts)),
                 "SessionStart" => rt.session_started = true,
                 _ => {}
+            }
+            // a new turn (or a normal end) means the last error is over; StopFailure sets one
+            if matches!(event, "UserPromptSubmit" | "PreToolUse" | "PostToolUse" | "Stop") {
+                rt.turn_error = None;
+                rt.turn_hook_ms = rt.turn_hook_ms.max(ts);
+            }
+            if event == "StopFailure" {
+                // proof the CLI reports failed turns itself
+                rt.stop_failure = true;
             }
             if let Some(sid) = v.get("session_id").and_then(|x| x.as_str()) {
                 rt.view.provider_session_id = Some(sid.to_string());
@@ -364,7 +430,11 @@ fn poll_claude(rt: &mut Runtime, db: &Db) {
     }
 }
 
+/// How much of the last answer the live view keeps (the hook delivers at most 24 000 characters).
+const FULL_ANSWER_CHARS: usize = 24_000;
+
 fn start_turn(rt: &mut Runtime, ts: i64) {
+    rt.view.interim = None;
     rt.view.turn_started_at = Some(ts);
     rt.view.turn_ended_at = None;
     rt.view.turn_files = 0;
@@ -387,8 +457,14 @@ fn apply_activity(rt: &mut Runtime, a: crate::activity::Activity) {
             rt.view.turn_files += 1;
             rt.view.current_activity = Some(a.text.clone());
         }
+        "interim" => {
+            // what it says while it works: shown live, spoken in conversations, not in the timeline
+            rt.view.interim = Some(a.text.clone());
+            return;
+        }
         "done" => {
             rt.view.current_activity = None;
+            rt.view.interim = None;
             rt.view.turn_ended_at = Some(a.ts);
             rt.view.notice = None;
             if !a.text.is_empty() {
@@ -419,6 +495,13 @@ fn claude_activity(rt: &mut Runtime, v: &Value, event: &str, ts: i64) {
             let tool = v.get("tool_name").and_then(|x| x.as_str()).unwrap_or("tool");
             let (label, _) = describe_claude_tool(tool, v.get("tool_input").unwrap_or(&Value::Null));
             rt.view.notice = None;
+            // M17: a sentence it wrote before this tool is in the transcript now
+            let transcript = v.get("transcript_path").and_then(|x| x.as_str()).map(str::to_string).or_else(|| rt.view.transcript_path.clone());
+            if let Some(said) = transcript.and_then(|t| crate::activity::claude_interim(Path::new(&t))) {
+                if rt.view.interim.as_deref() != Some(said.as_str()) {
+                    rt.view.interim = Some(said);
+                }
+            }
             let is_edit = matches!(tool, "Edit" | "MultiEdit" | "Write" | "NotebookEdit");
             if is_edit {
                 rt.view.current_activity = Some(label);
@@ -456,9 +539,30 @@ fn claude_activity(rt: &mut Runtime, v: &Value, event: &str, ts: i64) {
                 .or_else(|| rt.view.transcript_path.as_deref().and_then(|t| crate::activity::claude_last_message(Path::new(t))))
                 .unwrap_or_default();
             apply_activity(rt, Activity::new(ts, "done", crate::activity::excerpt_lines(&msg, crate::activity::ANSWER_CHARS), None));
+            // The live view keeps the whole answer (an operator's action block for a big board is
+            // longer than the timeline excerpt); the timeline stores the excerpt.
+            if !msg.trim().is_empty() {
+                rt.view.last_message = Some(msg.chars().take(FULL_ANSWER_CHARS).collect());
+            }
+        }
+        "StopFailure" => {
+            // An API error ended the turn: over, but not done (no answer, no review).
+            let fallback = rt.view.transcript_path.as_deref().and_then(|t| crate::activity::claude_last_message(Path::new(t)));
+            let e = crate::failure::claude_stop_failure(v, fallback, ts);
+            end_failed_turn(rt, e);
         }
         _ => {}
     }
+}
+
+/// A turn ended in an error: the live view shows it ended, the timeline gets the error.
+fn end_failed_turn(rt: &mut Runtime, e: crate::failure::TurnError) {
+    rt.view.current_activity = None;
+    rt.view.interim = None;
+    rt.view.notice = None;
+    rt.view.turn_ended_at = Some(e.at);
+    rt.new_activity.push(crate::activity::Activity::new(e.at, "error", format!("{}: {}", crate::failure::label(&e.kind), e.message), None));
+    rt.turn_error = Some(e);
 }
 
 /// Codex: locate this session's rollout file, then tail it.
@@ -496,10 +600,16 @@ fn poll_codex(rt: &mut Runtime, db: &Db, claimed: &[PathBuf]) {
             match codex::parse_line(line, &mut rt.rollout_state) {
                 Some(codex::Event::TaskStarted(t)) => {
                     rt.rollout_last = Some((true, t));
+                    rt.turn_error = None;
                     start_turn(rt, now_ms());
                 }
                 Some(codex::Event::TaskComplete(t)) => rt.rollout_last = Some((false, t)),
                 _ => {}
+            }
+            // the turn ended in an error (task_complete.error): failed, not done
+            if let Some(raw) = crate::failure::codex_turn_error(line) {
+                end_failed_turn(rt, crate::failure::TurnError::new(&raw, None, now_ms()));
+                continue;
             }
             let cwd = rt.rollout_state.cwd.clone().unwrap_or_else(|| rt.cwd.clone());
             for a in crate::activity::codex_activity(line, now_ms(), Some(&cwd)) {
@@ -562,9 +672,101 @@ pub fn find_rollout(home: &Path, cwd: &str, started_ms: i64, psid: Option<&str>,
     best.map(|b| b.1)
 }
 
+/// Copilot: locate this session's event log (`session-state/<id>/events.jsonl`), then tail it.
+/// Until it is found the session runs on screen heuristics like a custom CLI.
+fn poll_copilot(rt: &mut Runtime, claimed: &[PathBuf]) {
+    use crate::activity::{excerpt, excerpt_lines, Activity, ANSWER_CHARS};
+    use crate::copilot::Event;
+    let now = now_ms();
+    if rt.rollout.is_none() {
+        if now - rt.last_search < 2000 {
+            return;
+        }
+        rt.last_search = now;
+        let home = rt.config_dir.clone().map(PathBuf::from).unwrap_or_else(|| crate::paths::default_config_dir("copilot"));
+        if let Some((id, log)) = crate::copilot::find_session(&home, &rt.cwd, rt.started_ms, rt.known_psid.as_deref(), claimed) {
+            // a resumed conversation: only new lines matter for the live view
+            if rt.known_psid.is_some() {
+                rt.rollout_offset = std::fs::metadata(&log).map(|m| m.len()).unwrap_or(0);
+            }
+            rt.view.provider_session_id = Some(id);
+            rt.rollout = Some(log);
+        }
+    }
+    let Some(path) = rt.rollout.clone() else { return };
+    rt.view.transcript_path = Some(path.to_string_lossy().into_owned());
+    let Ok((text, off)) = usage::read_new_lines(&path, rt.rollout_offset) else { return };
+    rt.rollout_offset = off;
+    for line in text.lines() {
+        let Some((ev, ts)) = crate::copilot::parse_line(line) else { continue };
+        let ts = ts.unwrap_or_else(now_ms);
+        match ev {
+            Event::Prompt(p) => {
+                rt.rollout_last = Some((true, ts));
+                rt.turn_error = None;
+                rt.copilot_answer = None;
+                apply_activity(rt, Activity::new(ts, "prompt", excerpt(&crate::activity::clean_prompt(&p), 300), None));
+            }
+            Event::Working => {
+                rt.rollout_last = Some((true, ts));
+                rt.turn_error = None;
+                if rt.view.turn_started_at.is_none() || rt.view.turn_ended_at.is_some() {
+                    start_turn(rt, ts);
+                }
+            }
+            Event::Tool { label, file } => {
+                rt.rollout_last = Some((true, ts));
+                rt.view.notice = None;
+                match file {
+                    Some(f) => apply_activity(rt, Activity::new(ts, "file", label, Some(f))),
+                    None => apply_activity(rt, Activity::new(ts, "tool", label, None)),
+                }
+            }
+            Event::Message { text, final_answer } => {
+                if final_answer && !text.is_empty() {
+                    rt.copilot_answer = Some(text);
+                } else if !text.is_empty() {
+                    // a sentence before a tool call: shown live (and spoken in conversations)
+                    rt.view.interim = Some(excerpt(&text, 400));
+                }
+            }
+            // a model call ended with a final answer, or the loop ended: the turn is over
+            Event::TurnEnd if rt.copilot_answer.is_none() => {}
+            Event::TurnEnd | Event::Idle => {
+                if rt.rollout_last.is_some_and(|(w, _)| !w) && rt.view.turn_ended_at.is_some() {
+                    continue; // already ended (turn_end, then idle)
+                }
+                rt.rollout_last = Some((false, ts));
+                let msg = rt.copilot_answer.take().unwrap_or_default();
+                apply_activity(rt, Activity::new(ts, "done", excerpt_lines(&msg, ANSWER_CHARS), None));
+                if !msg.trim().is_empty() {
+                    rt.view.last_message = Some(msg.chars().take(FULL_ANSWER_CHARS).collect());
+                }
+            }
+            Event::Error { message, status } => {
+                rt.rollout_last = Some((false, ts));
+                rt.copilot_answer = None;
+                let raw = match status {
+                    Some(s) if !message.contains(&s.to_string()) => format!("{message} ({s})"),
+                    _ => message,
+                };
+                end_failed_turn(rt, crate::failure::TurnError::new(&raw, None, ts));
+            }
+            Event::Context(pct) => rt.view.context_percent = Some(pct),
+        }
+    }
+}
+
 static TRUST_PROMPT: once_cell::sync::Lazy<regex::Regex> = once_cell::sync::Lazy::new(|| {
-    regex::Regex::new(r"(?i)(trust (the files|this folder|the contents|this directory)|one you trust|allow codex to work|sign in with (chatgpt|device code)|provide your own api key|select login method|choose the text style|press enter to continue|finish signing in|log in to|login method|update now \(runs)").unwrap()
+    regex::Regex::new(r"(?i)(trust (the files|this folder|the contents|this directory)|one you trust|allow codex to work|sign in with (chatgpt|device code)|provide your own api key|select login method|choose the text style|press enter to continue|finish signing in|log in to|login method|update now \(runs)|keep browser tools off|sign in with google|paste the authori[sz]ation code").unwrap()
 });
+
+/// Claude Code's one-time "Claude in Chrome extension detected" question. The cockpit answers it
+/// with the default — browser tools stay off (`/chrome` turns them on) — so a queued task is
+/// not typed into the dialog and lost. Only the dialog's own option line counts: the phrase in an
+/// agent's output (a grep, a file it read) must not make the cockpit press Esc into a busy session.
+static BROWSER_PROMPT: once_cell::sync::Lazy<regex::Regex> =
+    once_cell::sync::Lazy::new(|| regex::Regex::new(r"(?im)^[ \t]*(?:│[ \t]*)?(?:[❯›>][ \t]*)?(?:\d+[.)][ \t]*)?No, keep browser tools off\b").unwrap());
 
 pub const DIALOG_NOTICE: &str = "Answer the dialog in the terminal (e.g. trust this folder) — your queued task is sent right after";
 
@@ -588,8 +790,11 @@ pub fn ready_for_input(provider: Provider, hooks: bool, session_started: bool, s
     }
     // Claude with hooks already proved readiness via SessionStart; otherwise the input box
     // itself must be visible (Codex may sit silently while it installs its daemon).
-    // Custom CLIs have no known footer: settled output without a dialog is the best signal.
-    (provider == Provider::Claude && hooks) || provider == Provider::Custom || READY_HINT.is_match(screen)
+    // Custom CLIs, Copilot and Antigravity have no footer we can rely on across versions:
+    // settled output without a dialog is the best signal.
+    (provider == Provider::Claude && hooks)
+        || matches!(provider, Provider::Custom | Provider::Copilot | Provider::Antigravity)
+        || READY_HINT.is_match(screen)
 }
 
 /// When to continue after a usage limit: the reset printed by the CLI, else the latest
@@ -633,17 +838,78 @@ pub fn submit_delay_ms(text: &str) -> u64 {
     (450 + text.chars().count() as u64 / 4).min(1_800)
 }
 
-/// Type text into a CLI like a paste followed by Enter. Claude Code and Codex get a bracketed
-/// paste (one atomic paste, never mistaken for typed keys); other CLIs get plain keystrokes.
+/// Keys per write and the pause between writes when a message is typed into Claude Code.
+const TYPE_CHUNK: usize = 64;
+const TYPE_PAUSE_MS: u64 = 8;
+
+/// A message as Claude Code keystrokes. Claude Code wraps a *paste* (bracketed, or a big burst)
+/// in `<pasted_content>`, and the model then treats it as foreign text, not as the user's request
+/// — so the cockpit types it instead: line breaks as Alt+Enter, tabs as spaces, no other control
+/// keys, and a leading `!` (bash mode), `?` (help) or `#` (memory) kept literal by a space in
+/// front. A leading `/` stays a slash command only when the first word is one (`/compact`,
+/// `/review fix it`) — a path or other text starting with `/` is kept literal too, so a composed
+/// message never opens the command menu. A line ending in an `@` word gets a space after it, so
+/// the file-autocomplete menu is closed before the line break or the Enter (which would pick a
+/// suggestion instead of sending).
+pub fn claude_keys(text: &str) -> Vec<String> {
+    let text = text.replace("\r\n", "\n").replace('\t', "  ");
+    let mut keys: Vec<String> = Vec::with_capacity(text.len() + 2);
+    let first = text.lines().next().unwrap_or("");
+    if text.starts_with(['!', '?', '#']) || (text.starts_with('/') && !is_slash_command(first)) {
+        keys.push(" ".into());
+    }
+    for (i, line) in text.split('\n').enumerate() {
+        if i > 0 {
+            keys.push("\x1b\r".into());
+        }
+        keys.extend(line.chars().filter(|c| !c.is_control()).map(|c| c.to_string()));
+        if line.split_whitespace().last().is_some_and(|w| w.contains('@')) {
+            keys.push(" ".into());
+        }
+    }
+    keys
+}
+
+/// `/name` or `/name args` (name: letters, digits, `-`, `_`, `:`) — what a user types to run a
+/// Claude Code slash command; `/src/a.ts …` or `/ ` is not one.
+fn is_slash_command(first_line: &str) -> bool {
+    let word = first_line.split_whitespace().next().unwrap_or("");
+    let mut name = word.strip_prefix('/').unwrap_or("").chars();
+    name.next().is_some_and(|c| c.is_ascii_alphabetic()) && name.all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | ':'))
+}
+
+/// How long typing this message takes (see `deliver_input`).
+pub fn typing_ms(text: &str, provider: Provider) -> u64 {
+    if provider != Provider::Claude {
+        return 0;
+    }
+    (claude_keys(text).len().div_ceil(TYPE_CHUNK) as u64) * TYPE_PAUSE_MS
+}
+
+/// Type text into a CLI followed by Enter. Claude Code gets it typed in small bursts (see
+/// `claude_keys`); Codex a bracketed paste (one atomic paste, never mistaken for typed keys);
+/// other CLIs plain keystrokes.
 pub fn deliver_input(h: &crate::pty::PtyHandle, text: &str, provider: Provider) -> crate::error::AppResult<()> {
     let text = text.replace("\r\n", "\n");
-    if provider != Provider::Custom || text.contains('\n') {
+    if provider == Provider::Claude {
+        for chunk in claude_keys(&text).chunks(TYPE_CHUNK) {
+            h.write(chunk.concat().as_bytes())?;
+            std::thread::sleep(std::time::Duration::from_millis(TYPE_PAUSE_MS));
+        }
+    } else if provider != Provider::Custom || text.contains('\n') {
         h.write(format!("\x1b[200~{text}\x1b[201~").as_bytes())?;
     } else {
         h.write(text.as_bytes())?;
     }
     std::thread::sleep(std::time::Duration::from_millis(submit_delay_ms(&text)));
-    h.write(b"\r")
+    h.write(b"\r")?;
+    if provider == Provider::Codex && text.chars().count() > 200 {
+        // Codex reads keys that arrive in a burst as a paste: an Enter right after a long text
+        // can become a line break. A second Enter submits it (on an empty prompt it does nothing).
+        std::thread::sleep(std::time::Duration::from_millis(900));
+        h.write(b"\r")?;
+    }
+    Ok(())
 }
 
 fn squash(s: &str) -> String {
@@ -790,6 +1056,21 @@ pub fn heuristic_turns(view: &mut RuntimeView, in_ms: i64, out_ms: i64, now: i64
     }
 }
 
+/// The error a session shows: the provider's report, else (status "error" from the screen) the
+/// error block on screen.
+fn turn_error_view(provider: Option<&crate::failure::TurnError>, status: &str, detection: Option<&(Signal, i64)>, h: Option<&crate::pty::PtyHandle>) -> Option<crate::failure::TurnError> {
+    match status {
+        "error" | "rate-limited" if provider.is_some() => provider.cloned(),
+        "error" => {
+            let (_, t) = detection.filter(|(s, _)| *s == Signal::TurnFailed)?;
+            let line = h?.detection.lock().as_ref().map(|(d, _)| d.text.clone())?;
+            let text = crate::failure::block_on_screen(&h?.screen_text(), &line).unwrap_or(line);
+            Some(crate::failure::TurnError::new(&text, None, *t))
+        }
+        _ => None,
+    }
+}
+
 /// Background loop: one tick per second.
 pub fn spawn_monitor(app: AppHandle, db: Arc<Db>, pty: Arc<PtyManager>, runtimes: Runtimes) {
     std::thread::Builder::new()
@@ -805,6 +1086,7 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
     let mut to_emit: Vec<RuntimeView> = Vec::new();
     let mut deliveries: Vec<(Arc<crate::pty::PtyHandle>, String, Provider)> = Vec::new();
     let mut enters: Vec<Arc<crate::pty::PtyHandle>> = Vec::new();
+    let mut escapes: Vec<Arc<crate::pty::PtyHandle>> = Vec::new();
     let mut resume_requests: Vec<(String, String)> = Vec::new();
     let mut new_activity: Vec<(String, crate::activity::Activity)> = Vec::new();
     let mut automation_saves: Vec<crate::automation::Automation> = Vec::new();
@@ -835,8 +1117,12 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
         if running && rt.kind == "agent" {
             match rt.provider {
                 Provider::Claude if rt.hooks => poll_claude(rt, db),
-                Provider::Codex => {
-                    poll_codex(rt, db, &claimed);
+                Provider::Codex | Provider::Copilot => {
+                    if rt.provider == Provider::Codex {
+                        poll_codex(rt, db, &claimed);
+                    } else {
+                        poll_copilot(rt, &claimed);
+                    }
                     if let Some(p) = rt.rollout.as_ref().filter(|p| !claimed.contains(p)) {
                         claimed.push(p.clone());
                     }
@@ -846,9 +1132,10 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
         }
         let provider_state = match rt.provider {
             Provider::Claude => rt.last_hook,
-            Provider::Codex => rt.rollout_last,
-            Provider::Custom => None,
+            Provider::Codex | Provider::Copilot => rt.rollout_last,
+            Provider::Antigravity | Provider::Custom => None,
         };
+        let signals = rt.provider_signals();
         let inputs = StatusInputs {
             running,
             exited,
@@ -858,13 +1145,20 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
             started_ms: rt.started_ms,
             last_output_ms: out_ms,
             last_input_ms: in_ms,
-            provider_signals: rt.kind == "agent" && (rt.hooks || rt.provider == Provider::Codex),
+            provider_signals: rt.kind == "agent" && signals,
             provider_state,
-            detection,
+            // an error line in a plain terminal is just output
+            detection: detection.filter(|(s, _)| rt.kind == "agent" || *s != Signal::TurnFailed),
+            turn_error: rt.turn_error.as_ref().map(|e| e.kind.clone()),
+            screen_failure_after: rt.screen_failure_after(),
         };
-        let (status, attention) = compute_status(&inputs);
+        let (status, mut attention) = compute_status(&inputs);
         if rt.kind == "agent" && !inputs.provider_signals && running {
             heuristic_turns(&mut rt.view, in_ms, out_ms, now);
+        }
+        rt.view.error = turn_error_view(rt.turn_error.as_ref(), status, inputs.detection.as_ref(), handle.as_deref());
+        if let (Some(e), "error") = (&rt.view.error, status) {
+            attention = Some(crate::failure::label(&e.kind).into());
         }
         rt.view.status = status.to_string();
         rt.view.attention = attention;
@@ -957,7 +1251,7 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
                     running,
                     status,
                     ready,
-                    provider_signals: rt.hooks || rt.provider == Provider::Codex,
+                    provider_signals: signals,
                     turn_ended_at: rt.view.turn_ended_at,
                     last_message: rt.view.last_message.as_deref(),
                     supervising: rt.supervising,
@@ -1009,12 +1303,14 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
                 let screen = h.screen_text();
                 if ready_for_input(rt.provider, rt.hooks, rt.session_started, rt.started_ms, out_ms, now, &screen) {
                     if let Some(text) = rt.pending_input.take() {
-                        rt.submit_check = Some(SubmitCheck { at: now + submit_delay_ms(&text) as i64, probe: submit_probe(&text), tries: 0 });
+                        rt.submit_check = Some(SubmitCheck { at: now + (typing_ms(&text, rt.provider) + submit_delay_ms(&text)) as i64, probe: submit_probe(&text), tries: 0 });
                         deliveries.push((h.clone(), text, rt.provider));
                     }
                     if rt.view.notice.as_deref() == Some(DIALOG_NOTICE) {
                         rt.view.notice = None;
                     }
+                } else if rt.provider == Provider::Claude && BROWSER_PROMPT.is_match(&screen) && now - out_ms > 800 {
+                    escapes.push(h.clone());
                 } else if now - rt.started_ms > 4000 && TRUST_PROMPT.is_match(&screen) {
                     // The queued task waits for a dialog only the user should answer.
                     rt.view.notice = Some(DIALOG_NOTICE.into());
@@ -1059,13 +1355,15 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
             || prev.login_url != rt.view.login_url
             || prev.pending_input != rt.view.pending_input
             || prev.current_activity != rt.view.current_activity
+            || prev.interim != rt.view.interim
             || prev.last_message != rt.view.last_message
             || prev.turn_files != rt.view.turn_files
             || prev.notice != rt.view.notice
             || prev.turn_started_at != rt.view.turn_started_at
             || prev.automation != rt.view.automation
             || prev.git_branch != rt.view.git_branch
-            || prev.git_changed != rt.view.git_changed;
+            || prev.git_changed != rt.view.git_changed
+            || prev.error != rt.view.error;
         let active = out_ms > rt.last_db_touch;
         if changed || (active && now - rt.last_db_touch > 30_000) {
             rt.last_db_touch = now;
@@ -1123,6 +1421,9 @@ pub fn tick(app: &AppHandle, db: &Db, pty: &PtyManager, runtimes: &Runtimes) {
     }
     for job in supervise {
         crate::supervise(app.clone(), job);
+    }
+    for h in escapes {
+        let _ = h.write(b"\x1b");
     }
     for h in enters {
         let _ = h.write(b"\r");
@@ -1203,6 +1504,12 @@ mod tests {
         // Pasted prompts are shown without the CLI's paste markers.
         claude_activity(&mut rt, &serde_json::json!({"prompt": "<pasted_content id=\"a1\">GOAL: ship it</pasted_content>"}), "UserPromptSubmit", 8);
         assert_eq!(rt.view.last_prompt.as_deref(), Some("GOAL: ship it"));
+        // A long answer (an operator building a big board) stays whole in the live view; the
+        // timeline keeps an excerpt.
+        let long = format!("Ich baue das Board.\n```cockpit-actions\n[{}]\n```", "{\"op\":\"add\"},".repeat(900));
+        claude_activity(&mut rt, &serde_json::json!({ "last_assistant_message": long }), "Stop", 9);
+        assert_eq!(rt.view.last_message.as_deref(), Some(long.as_str()));
+        assert!(rt.new_activity.last().unwrap().text.chars().count() <= crate::activity::ANSWER_CHARS + 2);
     }
 
     #[test]
@@ -1276,7 +1583,32 @@ Then run npm test.");
         assert!(still_in_input(codex, &probe), "wrapped text in the composer");
         assert!(!still_in_input("› Ask Codex to do anything", &probe));
         assert!(!still_in_input("anything", "ok"), "too short to be sure");
+        assert!(BROWSER_PROMPT.is_match("  ❯ No, keep browser tools off\n    Yes, use my browser"));
+        assert!(BROWSER_PROMPT.is_match(" Claude in Chrome extension detected\n   1. Yes, use my browser\n │ ❯ 2. No, keep browser tools off (recommended)"));
+        // the phrase in an agent's output (a grep through this very file) is not the dialog: no Esc
+        for out in [
+            "⏺ Search(pattern: \"keep browser tools off\")\n  ⎿  src-tauri/src/monitor.rs:645: regex::Regex::new(r\"(?i)keep browser tools off\")",
+            "  645→    once_cell::sync::Lazy::new(|| regex::Regex::new(\"No, keep browser tools off\"));",
+            "The dialog offers „No, keep browser tools off“ as its default.",
+        ] {
+            assert!(!BROWSER_PROMPT.is_match(out), "{out}");
+        }
+        assert!(!ready_for_input(Provider::Codex, false, true, 0, 1, 10_000, "Claude in Chrome extension detected ❯ No, keep browser tools off · for shortcuts"));
         assert!(submit_delay_ms("hi") >= 450 && submit_delay_ms(&"x".repeat(50_000)) == 1_800);
+        // Claude Code gets the message typed: line breaks as Alt+Enter, no paste markers
+        let keys = claude_keys("Mach das.\r\nZweite\tZeile\u{7}");
+        assert_eq!(keys.concat(), "Mach das.\x1b\rZweite  Zeile");
+        assert_eq!(claude_keys("!wichtig")[0], " ");
+        // composed text never opens Claude Code's menus; a typed slash command still runs
+        assert_eq!(claude_keys("# Aufgabe\nBaue X")[0], " ", "no memory mode for a heading");
+        assert_eq!(claude_keys("/src/main.ts wirft einen Fehler")[0], " ", "a path is no command");
+        assert_eq!(claude_keys("/compact").concat(), "/compact");
+        assert_eq!(claude_keys("/review bitte gründlich").concat(), "/review bitte gründlich");
+        assert_eq!(claude_keys("Schau dir @src/main.ts").concat(), "Schau dir @src/main.ts ", "autocomplete closed before Enter");
+        assert_eq!(claude_keys("Mail an a@b.de\nDanke").concat(), "Mail an a@b.de \x1b\rDanke");
+        assert_eq!(claude_keys("Mail @ 9 Uhr").concat(), "Mail @ 9 Uhr");
+        assert_eq!(typing_ms(&"x".repeat(130), Provider::Claude), 3 * TYPE_PAUSE_MS);
+        assert_eq!(typing_ms("x", Provider::Codex), 0);
     }
 
     fn base() -> StatusInputs {
@@ -1355,5 +1687,173 @@ Then run npm test.");
         assert!(find_rollout(dir.path(), r"c:\work\app", start, None, &[found.clone()]).is_none(), "claimed files skipped");
         let by_id = find_rollout(dir.path(), "C:/zzz", start, Some("a-other"), &[]).unwrap();
         assert!(by_id.ends_with("rollout-a-other.jsonl"));
+    }
+
+    #[test]
+    fn failed_turn_is_an_error_not_a_finished_turn() {
+        let mut i = base();
+        i.last_output_ms = 99_000;
+        i.provider_signals = true;
+        i.provider_state = Some((false, 98_000));
+        i.turn_error = Some("model".into());
+        assert_eq!(compute_status(&i), ("error", Some("Model not available".into())));
+        i.turn_error = Some("limit".into());
+        assert_eq!(compute_status(&i).0, "rate-limited", "a limit keeps its own recovery (auto-continue, failover)");
+        i.turn_error = None;
+        assert_eq!(compute_status(&i).0, "waiting-for-input");
+        // the screen alone decides only without provider turn signals
+        let mut s = base();
+        s.last_input_ms = 95_000;
+        s.last_output_ms = 97_000;
+        s.detection = Some((Signal::TurnFailed, 96_000));
+        assert_eq!(compute_status(&s).0, "error");
+        s.provider_state = Some((false, 96_500));
+        assert_ne!(compute_status(&s).0, "error", "with hooks / rollout the provider reports the error");
+        s.provider_state = None;
+        s.last_input_ms = 98_000;
+        assert_ne!(compute_status(&s).0, "error", "typed again: the old error is over");
+    }
+
+    #[test]
+    fn codex_rollout_error_fails_the_turn_until_the_next_one_starts() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::new(crate::db::open_in_memory().unwrap());
+        let mut rt = Runtime::new("x", Provider::Codex, "agent", None, None, "/w", dir.path().into(), false, None, None);
+        let log = dir.path().join("rollout.jsonl");
+        // real lines from a Codex 0.16x rollout (trimmed)
+        let started = r#"{"timestamp":"2026-10-06T08:10:48.043Z","type":"event_msg","payload":{"type":"task_started","turn_id":"t1"}}"#;
+        let failed = r#"{"timestamp":"2026-10-06T08:10:49.547Z","ordinal":8,"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","last_agent_message":null,"error":{"message":"{\"type\":\"error\",\"status\":400,\"error\":{\"type\":\"invalid_request_error\",\"message\":\"The 'gpt-6.1-sol' model is not supported when using Codex with a ChatGPT account.\"}}","codex_error_info":"other"},"duration_ms":1651}}"#;
+        std::fs::write(&log, format!("{started}\n{failed}\n")).unwrap();
+        rt.rollout = Some(log.clone());
+        poll_codex(&mut rt, &db, &[]);
+        let e = rt.turn_error.clone().expect("failed turn");
+        assert_eq!(e.kind, "model");
+        assert!(e.message.contains("gpt-6.1-sol"));
+        assert_eq!(rt.rollout_last.map(|x| x.0), Some(false));
+        assert!(rt.view.turn_ended_at.is_some() && rt.view.current_activity.is_none());
+        assert_eq!(rt.new_activity.last().map(|a| a.kind.as_str()), Some("error"));
+        assert!(!rt.new_activity.iter().any(|a| a.kind == "done"), "no 'done' for a failed turn");
+        let mut i = base();
+        i.provider_signals = true;
+        i.provider_state = rt.rollout_last;
+        i.turn_error = rt.turn_error.as_ref().map(|e| e.kind.clone());
+        assert_eq!(compute_status(&i).0, "error");
+        // the user (or the operator) sends a new prompt: a new turn starts, the error is over
+        std::fs::write(&log, format!("{started}\n{failed}\n{}\n", started.replace("t1", "t2").replace("48.043", "59.000"))).unwrap();
+        poll_codex(&mut rt, &db, &[]);
+        assert!(rt.turn_error.is_none());
+    }
+
+    #[test]
+    fn claude_stop_failure_hook_fails_the_turn() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::new(crate::db::open_in_memory().unwrap());
+        let mut rt = Runtime::new("c", Provider::Claude, "agent", None, None, "/w", dir.path().into(), true, None, None);
+        let lines = [
+            r#"{"hook_event_name":"UserPromptSubmit","prompt":"Fix it","ts":1}"#,
+            r#"{"hook_event_name":"StopFailure","error":"overloaded","last_assistant_message":"API Error: 529 Overloaded. This is a server-side issue, usually temporary — try again in a moment.","ts":2}"#,
+        ];
+        std::fs::write(dir.path().join("events.jsonl"), lines.join("\n") + "\n").unwrap();
+        poll_claude(&mut rt, &db);
+        assert_eq!(rt.last_hook, Some((false, 2)));
+        assert_eq!(rt.turn_error.as_ref().map(|e| e.kind.as_str()), Some("server"));
+        assert_eq!(rt.view.turn_ended_at, Some(2));
+        assert_eq!(rt.view.last_message, None, "the error is not an answer");
+        let next = r#"{"hook_event_name":"UserPromptSubmit","prompt":"try again","ts":3}"#;
+        std::fs::write(dir.path().join("events.jsonl"), lines.join("\n") + "\n" + next + "\n").unwrap();
+        poll_claude(&mut rt, &db);
+        assert!(rt.turn_error.is_none());
+        assert!(rt.stop_failure, "a StopFailure seen proves the CLI reports failed turns");
+    }
+
+    #[test]
+    fn copilot_event_log_drives_turns_answers_and_failures() {
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().join("copilot-home");
+        let sess = home.join("session-state").join("5f2c-sess");
+        std::fs::create_dir_all(&sess).unwrap();
+        let mut rt = Runtime::new("cp", Provider::Copilot, "agent", None, Some(home.to_string_lossy().into_owned()), "C:/Work/App", dir.path().into(), false, None, None);
+        assert!(!rt.provider_signals(), "screen heuristics until the log is found");
+        let ts = chrono::Utc::now().to_rfc3339();
+        let lines = [
+            format!(r#"{{"type":"session.start","data":{{"context":{{"cwd":"C:/Work/App"}}}},"timestamp":"{ts}"}}"#),
+            r#"{"type":"user.message","data":{"content":"Fix the failing test"},"timestamp":"2026-10-10T08:00:00.000Z"}"#.into(),
+            r#"{"type":"assistant.turn_start","data":{},"timestamp":"2026-10-10T08:00:01.000Z"}"#.into(),
+            r#"{"type":"assistant.message","data":{"content":"Ich starte die Tests.","toolRequests":[{"name":"bash"}]},"timestamp":"2026-10-10T08:00:02.000Z"}"#.into(),
+            r#"{"type":"tool.execution_start","data":{"toolName":"bash","arguments":{"command":"npm test"}},"timestamp":"2026-10-10T08:00:03.000Z"}"#.into(),
+            r#"{"type":"assistant.turn_end","data":{},"timestamp":"2026-10-10T08:00:04.000Z"}"#.into(),
+        ];
+        let log = sess.join("events.jsonl");
+        std::fs::write(&log, lines.join("\n") + "\n").unwrap();
+        poll_copilot(&mut rt, &[]);
+        assert!(rt.provider_signals());
+        assert_eq!(rt.view.provider_session_id.as_deref(), Some("5f2c-sess"));
+        assert_eq!(rt.rollout_last.map(|x| x.0), Some(true), "a turn_end after a tool call is not the end");
+        assert_eq!(rt.view.current_activity.as_deref(), Some("Running npm test"));
+        assert_eq!(rt.view.interim.as_deref(), Some("Ich starte die Tests."));
+        let more = [
+            r#"{"type":"assistant.turn_start","data":{},"timestamp":"2026-10-10T08:00:05.000Z"}"#,
+            r#"{"type":"session.usage_info","data":{"tokenLimit":100000,"currentTokens":20000,"messagesLength":5}}"#,
+            r#"{"type":"assistant.message","data":{"content":"Alle 12 Tests grün.","toolRequests":[]},"timestamp":"2026-10-10T08:00:06.000Z"}"#,
+            r#"{"type":"assistant.turn_end","data":{},"timestamp":"2026-10-10T08:00:07.000Z"}"#,
+            r#"{"type":"session.idle","data":{},"timestamp":"2026-10-10T08:00:07.100Z"}"#,
+        ];
+        std::fs::write(&log, lines.join("\n") + "\n" + &more.join("\n") + "\n").unwrap();
+        poll_copilot(&mut rt, &[]);
+        assert_eq!(rt.rollout_last.map(|x| x.0), Some(false));
+        assert_eq!(rt.view.last_message.as_deref(), Some("Alle 12 Tests grün."));
+        assert_eq!(rt.view.context_percent, Some(20.0));
+        assert_eq!(rt.new_activity.iter().filter(|a| a.kind == "done").count(), 1, "turn_end + idle: one done");
+        // the free allowance is used up: a limit, not a finished turn (failover can move the work)
+        let limit = r#"{"type":"session.error","data":{"errorType":"rate_limit","message":"You've reached your rate limit","statusCode":429},"timestamp":"2026-10-10T08:01:00.000Z"}"#;
+        std::fs::write(&log, lines.join("\n") + "\n" + &more.join("\n") + "\n" + limit + "\n").unwrap();
+        poll_copilot(&mut rt, &[]);
+        assert_eq!(rt.turn_error.as_ref().map(|e| e.kind.as_str()), Some("limit"));
+        let i = StatusInputs { provider_signals: true, provider_state: rt.rollout_last, turn_error: rt.turn_error.as_ref().map(|e| e.kind.clone()), last_output_ms: 99_000, ..base() };
+        assert_eq!(compute_status(&i).0, "rate-limited");
+    }
+
+    #[test]
+    fn free_tier_clis_take_input_once_output_settles_without_a_dialog() {
+        let ok = |p, screen: &str| ready_for_input(p, false, false, 90_000, 97_000, 100_000, screen);
+        assert!(ok(Provider::Copilot, "> \n  Enter @ to mention files"));
+        assert!(ok(Provider::Antigravity, "> "));
+        assert!(!ok(Provider::Copilot, "Do you trust the files in this folder?\n❯ 1. Yes"));
+        assert!(!ok(Provider::Antigravity, "Do you trust the contents of this project?\n  Yes, I trust this folder"));
+        assert!(!ok(Provider::Antigravity, "Welcome to Antigravity\n  1. Sign in with Google\n  2. Use a Google Cloud project"));
+    }
+
+    #[test]
+    fn claude_without_stop_failure_hook_reads_the_failed_turn_off_the_screen() {
+        let dir = tempfile::tempdir().unwrap();
+        let db = Db::new(crate::db::open_in_memory().unwrap());
+        let mut rt = Runtime::new("o", Provider::Claude, "agent", None, None, "/w", dir.path().into(), true, None, None);
+        // an older CLI: the API error ends the turn without a hook; only the idle notice follows
+        let lines = [
+            r#"{"hook_event_name":"UserPromptSubmit","prompt":"Fix it","ts":95000}"#,
+            r#"{"hook_event_name":"PreToolUse","tool_name":"Bash","ts":96000}"#,
+            r#"{"hook_event_name":"Notification","notification_type":"idle_prompt","ts":99000}"#,
+        ];
+        std::fs::write(dir.path().join("events.jsonl"), lines.join("\n") + "\n").unwrap();
+        poll_claude(&mut rt, &db);
+        let inputs = |rt: &Runtime| StatusInputs {
+            provider_signals: true,
+            provider_state: rt.last_hook,
+            last_input_ms: 94_000,
+            last_output_ms: 97_000,
+            detection: Some((Signal::TurnFailed, 97_000)),
+            screen_failure_after: rt.screen_failure_after(),
+            ..base()
+        };
+        assert_eq!(compute_status(&inputs(&rt)).0, "error", "the failed turn must not look finished");
+        // a newer CLI with StopFailure registered reports the error itself: the screen does not count
+        rt.stop_failure = true;
+        assert_eq!(compute_status(&inputs(&rt)).0, "waiting-for-input");
+        // an "API Error" line in a tool's output, and the turn went on: no failure
+        rt.stop_failure = false;
+        let more = r#"{"hook_event_name":"PostToolUse","tool_name":"Bash","ts":98000}"#;
+        std::fs::write(dir.path().join("events.jsonl"), lines.join("\n") + "\n" + more + "\n").unwrap();
+        poll_claude(&mut rt, &db);
+        assert_ne!(compute_status(&inputs(&rt)).0, "error");
     }
 }

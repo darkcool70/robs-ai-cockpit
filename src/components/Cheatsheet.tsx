@@ -22,13 +22,32 @@ export function Cheatsheet() {
     ["Ctrl Shift C / V", "Copy / paste in a terminal"],
     ["F1", "This overview"],
   ];
+  // the board (Pro): its help line is gone, the gestures live here
+  const board: [string, string][] = [
+    ["Pinch / spread", "Zoom around the fingers (also Ctrl or Alt + wheel)"],
+    ["Two fingers · wheel", "Move the board (Shift + wheel: sideways)"],
+    ["+ / − · 0", "Zoom · show everything"],
+    ["Double-click", "Empty spot: a note · card: open it"],
+    ["Right-click · Ctrl K", "Add something · board commands"],
+  ];
   const voice: [string, string][] = [
+    ["Ctrl Shift M", "Stumm / Ton an — the voice only, the microphone keeps working"],
     ...(main ? [[prettyHotkey(main), "Dictate (tap = start/stop, hold = push-to-talk)"] as [string, string]] : []),
     ...(mod ? [[`${prettyHotkey(mod)} + 1 … 8`, "Dictate into pane 1 … 8"] as [string, string]] : []),
     ...(settings.voicePickWhileRecording !== false ? [["1 … 8 · ← →", "While recording: switch the target"] as [string, string], ["Enter / Esc", "While recording: send / cancel"] as [string, string]] : []),
     ...perSession.map((s) => [prettyHotkey(s.voiceHotkey), `Dictate into “${s.name}”`] as [string, string]),
   ];
-  const spoken = ["“Claude B, …” — to a session by name", "“Fenster 3 stopp” · “Fenster 2 groß” · “alle Fenster”", "“Zeig die Übersicht” · “Zeig Aufgaben” · “Alle weiter”", "“…, absenden” at the end presses Enter"];
+  const spoken = [
+    "“Claude B, …” — to a session by name",
+    "“Status” · “Was ist los?” — spoken report of all agents",
+    "“Fenster 2 vorlesen” · “Fenster 2 weiter” · “Fenster 3 stopp”",
+    "“Fenster 2 groß” · “alle Fenster” · “Alle weiter” · “Neuer Agent”",
+    "“Zeig die Übersicht” · “Zeig Aufgaben” · “Zeig Sprache”",
+    "“Sprich erstmal nicht” · “Psst” · “Sprich wieder” — mute / unmute the voice",
+    "“Sprich weniger” · “Sag mir alles” · “Lies alles vor” — how much it talks",
+    "“Tschüss” ends a conversation",
+    "“…, absenden” at the end sends at once",
+  ];
   const section = (title: string, list: [string, string][]) => (
     <div>
       <div className="mb-1 text-[11px] font-semibold tracking-wider text-muted uppercase">{title}</div>
@@ -47,7 +66,10 @@ export function Cheatsheet() {
   return (
     <Modal title="Keyboard & voice shortcuts" onClose={() => useApp.getState().setCheatsheet(false)} width={640}>
       <div className="grid grid-cols-2 gap-5">
-        {section("Keyboard", rows)}
+        <div className="space-y-4">
+          {section("Keyboard", rows)}
+          {section("Board", board)}
+        </div>
         <div className="space-y-4">
           {section("Voice", voice)}
           <div>

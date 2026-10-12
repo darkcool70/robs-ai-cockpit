@@ -1,13 +1,14 @@
 import { useEffect, useState } from "react";
-import { Plus, Trash2 } from "lucide-react";
+import { AudioLines, Plus, Trash2 } from "lucide-react";
 import { MAX_PANES, maxPanes, useApp } from "../store";
 import { api, errMsg, type Price } from "../lib/api";
 import { setFont } from "../lib/terminals";
+import { pushHooks } from "../lib/notify";
 import { Button, Card, Field, IconButton, Input, SectionTitle, Select } from "../components/ui";
 import { AUTONOMY } from "../lib/models";
-import { VoiceSettings } from "./VoiceSettings";
+import { PROVIDERS } from "../lib/providers";
 import { ProSettings } from "@pro/ProSettings";
-import { AppearanceSettings, BudgetSettings, RemoteSettings, TestsSettings, TtsSettings, UpdateSettings } from "./SettingsExtras";
+import { AppearanceSettings, BudgetSettings, RemoteSettings, TestsSettings, UpdateSettings } from "./SettingsExtras";
 
 export function SettingsView() {
   const toast = useApp((s) => s.toast);
@@ -60,10 +61,10 @@ export function SettingsView() {
 
         <Card className="space-y-3 p-3">
           <SectionTitle>CLI binaries</SectionTitle>
-          {(["claude", "codex"] as const).map((p) => {
+          {(["claude", "codex", "copilot", "antigravity"] as const).map((p) => {
             const info = clis.find((c) => c.provider === p);
             return (
-              <Field key={p} label={p === "claude" ? "Claude Code path" : "Codex path"} hint={`Detected: ${info?.path ?? "not found"} (${info?.source ?? ""})`}>
+              <Field key={p} label={`${PROVIDERS[p].label} path`} hint={`Detected: ${info?.path ?? "not found"} (${info?.source ?? ""})`}>
                 <Input
                   className="font-mono"
                   defaultValue={(settings[`${p}Path`] as string) ?? ""}
@@ -176,7 +177,6 @@ export function SettingsView() {
         <TestsSettings settings={settings} put={put} />
         <BudgetSettings settings={settings} put={put} />
         <RemoteSettings settings={settings} put={put} />
-        <TtsSettings settings={settings} put={put} />
         <AppearanceSettings settings={settings} put={put} />
         <UpdateSettings />
 
@@ -215,7 +215,13 @@ export function SettingsView() {
           </Field>
         </Card>
 
-        <VoiceSettings />
+        <Card className="flex items-center gap-3 p-3 text-[12.5px]">
+          <AudioLines size={18} className="shrink-0 text-accent" />
+          <span className="flex-1">
+            <b>Voice</b> — dictation, spoken answers, the AI's voice, sounds and shortcuts have their own tab now.
+          </span>
+          <Button size="sm" onClick={() => useApp.getState().setView("voice")}>Open Voice</Button>
+        </Card>
 
         <Card className="space-y-2 p-3 text-[12.5px]">
           <SectionTitle>Claude Code integration</SectionTitle>
@@ -323,6 +329,13 @@ function PushSettings({ settings, put, bool }: { settings: Record<string, unknow
       <label className="flex items-center gap-2">
         <input type="checkbox" checked={bool("pushOnFailed")} onChange={(e) => void put("pushOnFailed", e.target.checked)} /> Push when a session ends with an error
       </label>
+      {pushHooks.ownsWaiting && <label className="flex items-start gap-2">
+        <input type="checkbox" className="mt-0.5" checked={bool("pushAway")} onChange={(e) => void put("pushAway", e.target.checked)} />
+        <span>
+          One short digest while you are away („Atlas ist fertig“, „Crew fertig – 2 Änderungen warten auf dich“, red tests, a question waiting)
+          <span className="block text-[11.5px] text-faint">After the minutes above away from the cockpit; at most one push every 8 minutes, each thing once. Replaces the waiting push.</span>
+        </span>
+      </label>}
     </Card>
   );
 }

@@ -3,9 +3,10 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, GitBranch } from "lucide-react";
 import { useApp } from "../store";
 import { api, errMsg, type Account, type Autonomy, type Provider, type Worktree } from "../lib/api";
-import { Button, Field, Input, Modal, ProviderMark, Select, cx } from "./ui";
+import { Button, Field, FreeBadge, Input, Modal, ProviderMark, Select, cx } from "./ui";
 import { AutonomyPicker, ModelAndAdvanced, cleanOptions, type OptionsState } from "./SessionOptionsFields";
 import { bestAccounts } from "../lib/failover";
+import { readIssues, troubledAccounts } from "../lib/accountHealth";
 import { allRoles, type Role } from "../lib/roles";
 
 export function NewSessionDialog() {
@@ -32,8 +33,9 @@ export function NewSessionDialog() {
   const [roleId, setRoleId] = useState("");
   const quota = useApp((s) => s.quota);
   const sessions = useApp((s) => s.sessions);
-  // Limit planner: the account with the most quota left per provider.
-  const best = useMemo(() => bestAccounts(accounts, quota, Object.values(sessions)), [accounts, quota, sessions]);
+  // Limit planner: the account with the most quota left per provider (not one whose model / login just failed).
+  const health = settings.accountHealth;
+  const best = useMemo(() => bestAccounts(accounts, quota, Object.values(sessions), Date.now(), troubledAccounts(readIssues({ accountHealth: health }))), [accounts, quota, sessions, health]);
   const usedOf = (id: string) => {
     const w = (quota[id] ?? []).filter((x) => !x.resetsAt || x.resetsAt * 1000 > Date.now());
     return w.length ? Math.max(...w.map((x) => x.usedPercent)) : null;
@@ -158,7 +160,7 @@ export function NewSessionDialog() {
   };
 
   if (!target) return null;
-  const groups: [Provider, string][] = [["claude", "Claude Code"], ["codex", "Codex"], ["custom", "Other CLIs"]];
+  const groups: [Provider, string][] = [["claude", "Claude Code"], ["codex", "Codex"], ["copilot", "Copilot"], ["antigravity", "Antigravity"], ["custom", "Other CLIs"]];
   return (
     <Modal
       title="New agent session"
@@ -209,6 +211,7 @@ export function NewSessionDialog() {
                           )}
                         >
                           <ProviderMark provider={a.provider} />
+                          <FreeBadge provider={a.provider} />
                           <span className="min-w-0 flex-1">
                             <span className="block truncate">{a.name}</span>
                             {a.authEmail && <span className="block truncate text-[10.5px] text-faint">{a.authEmail}</span>}

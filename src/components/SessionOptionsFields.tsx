@@ -3,6 +3,7 @@ import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { ChevronDown, ChevronRight, FolderPlus, X } from "lucide-react";
 import { api, type Account, type Autonomy, type ModelInfo, type Provider, type SessionOptions } from "../lib/api";
 import { AUTONOMY } from "../lib/models";
+import { isFreeTier, providerInfo } from "../lib/providers";
 import { Field, IconButton, Input, Select, cx } from "./ui";
 
 /** Models + effort levels offered for an account (cached per account for the app lifetime). */
@@ -25,6 +26,13 @@ export function useModelCatalog(account: Account | undefined): ModelInfo[] {
 
 const CLAUDE_EFFORTS = ["low", "medium", "high", "xhigh", "max"];
 
+const MODEL_HINT: Partial<Record<Provider, string>> = {
+  claude: "Alias = newest of that family. Empty = your default.",
+  codex: "Empty = model from your Codex config.",
+  copilot: "Copilot Free uses Auto only. Paid plans: any model id.",
+  antigravity: "Empty = agy's default. `agy models` lists the ids.",
+};
+
 export function effortsFor(provider: Provider, models: ModelInfo[], model: string): string[] {
   if (provider === "claude") return CLAUDE_EFFORTS;
   const m = models.find((x) => x.id === model);
@@ -38,6 +46,9 @@ export function AutonomyPicker({ value, onChange, provider }: { value: Autonomy;
   if (provider === "custom") {
     return <span className="text-[11.5px] text-faint">Custom CLIs start exactly as configured in their profile — permissions are handled inside the tool.</span>;
   }
+  if (provider === "copilot" || provider === "antigravity") {
+    return <span className="text-[11.5px] text-faint">{providerInfo(provider)?.label} keeps its own approvals: it asks before running tools, and the session shows “needs you” until you (or the operator) answer.</span>;
+  }
   const current = AUTONOMY.find((a) => a.value === value) ?? AUTONOMY[0];
   return (
     <div className="flex flex-col gap-1">
@@ -47,7 +58,7 @@ export function AutonomyPicker({ value, onChange, provider }: { value: Autonomy;
             key={a.value || "default"}
             type="button"
             onClick={() => onChange(a.value)}
-            title={a.hint[provider]}
+            title={a.hint[provider as "claude" | "codex"]}
             className={cx(
               "h-6 rounded border px-2 text-[11.5px]",
               value === a.value
@@ -59,7 +70,7 @@ export function AutonomyPicker({ value, onChange, provider }: { value: Autonomy;
           </button>
         ))}
       </div>
-      <span className={cx("text-[11px]", value === "full" ? "text-err" : "text-faint")}>{current.hint[provider]}</span>
+      <span className={cx("text-[11px]", value === "full" ? "text-err" : "text-faint")}>{current.hint[provider as "claude" | "codex"]}</span>
     </div>
   );
 }
@@ -99,18 +110,18 @@ export function ModelAndAdvanced({
   return (
     <div className="grid gap-3">
       {provider !== "custom" && <div className="grid grid-cols-2 gap-3">
-        <Field label="Model" hint={provider === "claude" ? "Alias = newest of that family. Empty = your default." : "Empty = model from your Codex config."}>
+        <Field label="Model" hint={MODEL_HINT[provider] ?? ""}>
           <Input list={listId} value={state.model} onChange={(e) => onChange({ model: e.target.value.trim() })} placeholder="CLI default" />
           <datalist id={listId}>
             {models.map((m) => <option key={m.id} value={m.id}>{m.label}</option>)}
           </datalist>
         </Field>
-        <Field label={provider === "claude" ? "Effort" : "Reasoning effort"}>
+        {!isFreeTier(provider) && <Field label={provider === "claude" ? "Effort" : "Reasoning effort"}>
           <Select value={o.effort ?? ""} onChange={(e) => setOpt({ effort: e.target.value || null })}>
             <option value="">CLI default</option>
             {efforts.map((e) => <option key={e} value={e}>{e}</option>)}
           </Select>
-        </Field>
+        </Field>}
       </div>}
       {showTask && (
         <Field label="Task to start with (optional)" hint="Typed into the session as soon as it is ready — then it just runs.">
@@ -163,12 +174,12 @@ export function ModelAndAdvanced({
                 </label>
               </div>
             </>
-          ) : (
+          ) : provider === "codex" ? (
             <label className="flex items-center gap-2 text-[12.5px]">
               <input type="checkbox" checked={!!o.webSearch} onChange={(e) => setOpt({ webSearch: e.target.checked })} />
               Live web search (--search)
             </label>
-          )}
+          ) : null}
         </div>
       )}
     </div>
@@ -193,11 +204,16 @@ export function cleanOptions(o: SessionOptions): SessionOptions {
 /** Keep only options that make sense for the provider (e.g. after switching account). */
 export function optionsForProvider(o: SessionOptions, provider: Provider, efforts: string[]): SessionOptions {
   const out = { ...o };
-  if (provider === "claude") delete out.webSearch;
-  else {
+  if (provider !== "codex") delete out.webSearch;
+  if (provider !== "claude") {
     delete out.appendSystemPrompt;
     delete out.fallbackModel;
     delete out.chrome;
+  }
+  if (isFreeTier(provider)) {
+    // no effort flag; approvals stay inside the CLI (cli.rs does not map autonomy for them)
+    delete out.effort;
+    delete out.autonomy;
   }
   if (out.effort && efforts.length && !efforts.includes(out.effort)) delete out.effort;
   return out;

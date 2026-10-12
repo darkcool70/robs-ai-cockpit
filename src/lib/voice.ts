@@ -4,6 +4,14 @@ import { register, unregister, unregisterAll, type ShortcutEvent } from "@tauri-
 import { listen } from "@tauri-apps/api/event";
 import { api, errMsg } from "./api";
 import { useApp } from "../store";
+import { playSfx, type Sfx } from "./sfx";
+import { voiceHooks } from "./hooks";
+import { assistantOf } from "./assistants";
+import { acknowledge, dropHeldSpeech, hasHeldSpeech, resumeSpeech, neuralVoice, outputLevel, phrase, signal, speak, stopSpeaking, summarize } from "./tts";
+import { logVoice } from "./voicelog";
+import { stopFillers } from "./fillers";
+import { noteVoiceTurn } from "./speakTurn";
+import { applySpeechControl, spokenSpeechControl } from "./mute";
 
 // Ctrl+Alt+Space is often taken (IMEs, overlays); Alt+Shift+Space is free and clashes with no editor.
 export const DEFAULT_FOCUSED_HOTKEY = "Alt+Shift+Space";
@@ -54,12 +62,14 @@ export function hotkeyProblem(h: string | null | undefined): string | null {
  * Notices the end of speech from the level meter (one RMS value every ~80 ms): learns the room's
  * noise floor, waits until you have spoken, then reports true after `silenceMs` of quiet.
  */
-export function silenceDetector(silenceMs = 1500, frameMs = 80) {
-  let frames = 0;
-  let floor = Infinity;
+export function silenceDetector(silenceMs = 1500, frameMs = 80, noSpeechMs = 0, knownFloor?: number) {
+  // With a known room level (barge-in: you are already talking) there is nothing to calibrate.
+  let frames = knownFloor !== undefined ? 5 : 0;
+  let floor = knownFloor ?? Infinity;
   let spoken = 0;
   let quiet = 0;
-  return (level: number): boolean => {
+  /** true: you finished speaking · "timeout": nobody spoke for `noSpeechMs` · false: keep listening */
+  return (level: number): boolean | "timeout" => {
     frames++;
     if (frames <= 5) floor = Math.min(floor, level); // first ~0.4 s: background noise
     const threshold = Math.max(0.012, (Number.isFinite(floor) ? floor : 0) * 3);
@@ -69,15 +79,21 @@ export function silenceDetector(silenceMs = 1500, frameMs = 80) {
     } else if (spoken >= 3) {
       quiet++;
     }
+    if (noSpeechMs > 0 && spoken < 3 && frames * frameMs >= noSpeechMs) return "timeout";
     return spoken >= 3 && quiet * frameMs >= silenceMs;
   };
 }
 
-export type VoiceState = "idle" | "recording" | "transcribing";
+export type VoiceState = "idle" | "recording" | "transcribing" | "sending";
 export interface Voice {
   state: VoiceState;
   target: string | null;
   level: number;
+  /** "sending": the recognised text, sent at `until` unless you stop it. */
+  text?: string;
+  until?: number;
+  /** Recording that belongs to a voice conversation (answers are read, then it listens again). */
+  conversation?: boolean;
 }
 
 /** A session you can switch the dictation to while recording (number = pane number). */
@@ -171,10 +187,15 @@ export function routeCandidates(): RouteCandidate[] {
 }
 
 export type ControlCommand =
-  | { action: "stop" | "zoom" | "focus"; pane: number }
-  | { action: "view"; view: "overview" | "tasks" | "workspace" | "review" }
+  | { action: "stop" | "zoom" | "focus" | "read" | "continue"; pane: number }
+  | { action: "view"; view: "overview" | "tasks" | "workspace" | "review" | "voice" | "assistants" }
   | { action: "continue-all" }
-  | { action: "show-all" };
+  | { action: "show-all" }
+  | { action: "status" }
+  | { action: "mute" | "unmute" }
+  | { action: "new-agent" }
+  | { action: "end-talk" }
+  | { action: "undo" };
 
 const NUMBER_WORDS: Record<string, number> = {
   eins: 1, ein: 1, one: 1, zwei: 2, two: 2, drei: 3, three: 3, vier: 4, four: 4,
@@ -204,36 +225,146 @@ export function parseControl(text: string): ControlCommand | null {
   if (/^(?:zeig|zeige|öffne|oeffne|show|open) (?:die |the )?(?:übersicht|uebersicht|overview)$/.test(t)) return { action: "view", view: "overview" };
   if (/^(?:zeig|zeige|öffne|oeffne|show|open) (?:die |the )?(?:aufgaben|tasks|task board)$/.test(t)) return { action: "view", view: "tasks" };
   if (/^(?:zeig|zeige|öffne|oeffne|show|open) (?:das |den |the )?(?:review|änderungen|aenderungen|changes)$/.test(t)) return { action: "view", view: "review" };
+  m = t.match(new RegExp(`^${pane} ${num} (weiter|weitermachen|fortsetzen|continue|go on)$`));
+  if (m) return { action: "continue", pane: paneNumber(m[1])! };
+  m = t.match(new RegExp(`^(?:(?:lies|lese|read)(?: mir| me)? )?${pane} ${num}(?: (?:vor|vorlesen|read|read aloud|aloud))?$`));
+  if (m && /\b(lies|lese|read|vor|vorlesen|aloud)\b/.test(t)) return { action: "read", pane: paneNumber(m[1])! };
+  if (/^(?:zeig|zeige|öffne|oeffne|show|open) (?:die |den |the )?(?:sprache|voice|sprachsteuerung|voice control)$/.test(t)) return { action: "view", view: "voice" };
+  if (/^(?:zeig|zeige|öffne|oeffne|show|open) (?:die |the )?(?:assistenten|assistants)$/.test(t)) return { action: "view", view: "assistants" };
   if (/^(?:alle|all|everyone) (?:weiter|weitermachen|fortsetzen|continue)$/.test(t)) return { action: "continue-all" };
   if (/^(?:alle fenster|alle zeigen|alle anzeigen|show all|all panes)$/.test(t)) return { action: "show-all" };
+  if (/^(?:status|statusbericht|lagebericht|lage|status report|report|sitrep|was ist los|wie ist der stand|wie ist die lage|wie sieht es aus|wie siehts aus|was machen die agenten|what's going on|whats going on|how are we doing)$/.test(t)) return { action: "status" };
+  if (/^(?:antworten aus|vorlesen aus|stumm|stummschalten|ton aus|mute|answers off|be quiet)$/.test(t)) return { action: "mute" };
+  if (/^(?:antworten an|vorlesen an|ton an|laut|unmute|answers on)$/.test(t)) return { action: "unmute" };
+  if (/^(?:neuer agent|neuen agenten|neuen agent|neue session|new agent|new session)(?: starten| start| öffnen)?$/.test(t)) return { action: "new-agent" };
+  if (/^(?:rückgängig|rueckgaengig|mach das rückgängig|mach rückgängig|undo|zurück|das war falsch)$/.test(t)) return { action: "undo" };
+  if (/^(?:gespräch beenden|gespraech beenden|ende|beenden|tschüss|tschuess|danke das wars|danke das war's|that's all|end conversation|over and out)$/.test(t)) return { action: "end-talk" };
   return null;
 }
 
-/** Carry out a spoken control command; returns a short confirmation. */
-export async function runControl(cmd: ControlCommand): Promise<string> {
+/**
+ * "Warte" / "weiter" while it speaks: interrupt and it waits, say "weiter" and it continues from the
+ * sentence it was in. Whole short utterances only. Pure (unit tested).
+ */
+export function pauseOrResume(text: string): "pause" | "resume" | null {
+  const t = text.toLowerCase().replace(/[.,!?;:…]+/g, " ").replace(/\bbitte\b/g, " ").replace(/\s+/g, " ").trim();
+  if (/^(?:warte|wart|warte mal|wart mal|warte kurz|moment|einen moment|moment mal|sekunde|eine sekunde|kurz pause|pause|halt|stopp|stop|hold on|wait|wait a second|wait a moment|one sec|one second|hang on)$/.test(t)) return "pause";
+  if (/^(?:weiter|mach weiter|weitermachen|fortfahren|erzähl weiter|erzaehl weiter|sprich weiter|ja weiter|okay weiter|ok weiter|und weiter|go on|continue|keep going|carry on|go ahead)$/.test(t)) return "resume";
+  return null;
+}
+
+/** Spoken situation report of all agents (no AI needed, instant). */
+export function statusReport(): string {
   const st = useApp.getState();
+  const en = st.settings.voiceLanguage === "en";
+  const agents = Object.values(st.sessions).filter((s) => s.kind === "agent" && s.runtime?.running);
+  if (!agents.length) return en ? "No agent is running." : "Es läuft gerade kein Agent.";
+  const working = agents.filter((s) => s.runtime?.status === "working");
+  const waiting = agents.filter((s) => s.runtime?.status === "waiting-for-input" && s.runtime?.notice);
+  const ready = agents.filter((s) => s.runtime?.status === "waiting-for-input" && !s.runtime?.notice);
+  const limited = agents.filter((s) => s.runtime?.status === "rate-limited");
+  const names = (l: typeof agents) => l.map((s) => s.name).join(en ? " and " : " und ");
+  const out: string[] = [];
+  out.push(en ? `${agents.length} agent${agents.length === 1 ? "" : "s"} running.` : `${agents.length} ${agents.length === 1 ? "Agent läuft" : "Agenten laufen"}.`);
+  for (const s of working.slice(0, 4)) {
+    const what = s.runtime?.currentActivity ? summarize(s.runtime.currentActivity, 60) : "";
+    out.push(en ? `${s.name} is working${what ? `: ${what}` : ""}.` : `${s.name} arbeitet${what ? `: ${what}` : ""}.`);
+  }
+  if (working.length > 4) out.push(en ? `${working.length - 4} more are working.` : `${working.length - 4} weitere arbeiten.`);
+  if (waiting.length) out.push(en ? `${names(waiting)} need${waiting.length === 1 ? "s" : ""} your decision.` : `${names(waiting)} ${waiting.length === 1 ? "braucht" : "brauchen"} deine Entscheidung.`);
+  if (ready.length) out.push(en ? `${names(ready)} ${ready.length === 1 ? "is" : "are"} done and waiting.` : `${names(ready)} ${ready.length === 1 ? "ist fertig und wartet" : "sind fertig und warten"}.`);
+  if (limited.length) out.push(en ? `${names(limited)} hit a usage limit.` : `${names(limited)} ${limited.length === 1 ? "hat" : "haben"} ein Limit erreicht.`);
+  const review = st.tasks.filter((t) => t.status === "review").length;
+  if (review) out.push(en ? `${review} task${review === 1 ? " is" : "s are"} ready for review.` : `${review} ${review === 1 ? "Aufgabe wartet" : "Aufgaben warten"} auf dein Review.`);
+  return out.join(" ");
+}
+
+/**
+ * Carry out a spoken control command; returns a short confirmation. `then` runs when it is done,
+ * including anything it reads aloud (the conversation listens again afterwards).
+ */
+export async function runControl(cmd: ControlCommand, then?: () => void): Promise<string> {
+  const st = useApp.getState();
+  const en = st.settings.voiceLanguage === "en";
   const idAt = (n: number) => voiceChoices().find((c) => c.n === n)?.id ?? null;
+  const after = () => window.setTimeout(() => then?.(), 300);
   switch (cmd.action) {
+    case "status": {
+      const report = statusReport();
+      speak(report, { name: en ? "Status" : "Lagebericht", onEnd: then });
+      return report;
+    }
+    case "read": {
+      const id = idAt(cmd.pane);
+      const s = id ? st.sessions[id] : undefined;
+      const text = s?.runtime?.notice ?? s?.runtime?.lastMessage;
+      if (!s || !text) {
+        after();
+        return `Pane ${cmd.pane}: ${en ? "nothing to read" : "nichts vorzulesen"}`;
+      }
+      speak(`${s.name}: ${summarize(text, 700)}`, { sessionId: s.id, name: s.name, onEnd: then });
+      return `${s.name} 🔊`;
+    }
+    case "continue": {
+      const id = idAt(cmd.pane);
+      if (!id) {
+        after();
+        return `Pane ${cmd.pane} is empty`;
+      }
+      const msg = typeof st.settings.autoContinueMessage === "string" && st.settings.autoContinueMessage.trim() ? st.settings.autoContinueMessage : "weiter";
+      await st.queueInput(id, msg);
+      signal("send", phrase("sent"));
+      after();
+      return `"${msg}" → ${st.sessions[id]?.name}`;
+    }
+    case "mute":
+    case "unmute": {
+      // one mute for every spoken output (see mute.ts): „Antworten aus“ is „sei still“
+      await applySpeechControl(cmd.action, { then });
+      return cmd.action === "mute" ? (en ? "Muted" : "Stumm") : en ? "Speaking again" : "Spricht wieder";
+    }
+    case "new-agent":
+      st.openNewSession(null);
+      playSfx("confirm");
+      return "New agent";
+    case "undo": {
+      const done = voiceHooks.undo?.() ?? null;
+      if (done) signal("confirm", en ? "Undone." : "Rückgängig gemacht.");
+      else playSfx("error");
+      after();
+      return done ?? (en ? "Nothing to undo" : "Nichts rückgängig zu machen");
+    }
+    case "end-talk":
+      useApp.setState({ talkSession: null });
+      signal("standby", phrase("standby"));
+      return "Conversation ended";
     case "stop": {
       const id = idAt(cmd.pane);
+      after();
       if (!id) return `Pane ${cmd.pane} is empty`;
       await st.stopSession(id);
+      playSfx("confirm");
       return `Stopped ${st.sessions[id]?.name ?? `pane ${cmd.pane}`}`;
     }
     case "zoom":
+      after();
       if (!st.panes[cmd.pane - 1]) return `Pane ${cmd.pane} is empty`;
       st.setZoom(cmd.pane - 1);
       return `Pane ${cmd.pane} in focus`;
     case "focus":
+      after();
       st.focusPane(cmd.pane - 1);
       return `Pane ${cmd.pane}`;
     case "view":
+      after();
       st.setView(cmd.view);
       return cmd.view;
     case "show-all":
+      after();
       st.setZoom(null);
       return "All panes";
     case "continue-all": {
+      after();
       const msg = typeof st.settings.autoContinueMessage === "string" && st.settings.autoContinueMessage.trim() ? st.settings.autoContinueMessage : "weiter";
       const waiting = Object.values(st.sessions).filter((s) => s.kind === "agent" && s.runtime?.running && s.runtime.status === "waiting-for-input");
       for (const s of waiting) await st.queueInput(s.id, msg);
@@ -242,29 +373,9 @@ export async function runControl(cmd: ControlCommand): Promise<string> {
   }
 }
 
-let audioCtx: AudioContext | null = null;
-/** Short tone: rising when recording starts, falling when it stops. */
-export function cue(kind: "start" | "stop" | "error" | "switch") {
-  if (useApp.getState().settings.voiceSounds === false) return;
-  try {
-    audioCtx ??= new AudioContext();
-    const ctx = audioCtx;
-    const t = ctx.currentTime;
-    const freqs = kind === "start" ? [520, 780] : kind === "stop" ? [700, 470] : kind === "switch" ? [880] : [300, 300];
-    freqs.forEach((f, i) => {
-      const o = ctx.createOscillator();
-      const g = ctx.createGain();
-      o.frequency.value = f;
-      g.gain.setValueAtTime(0.0001, t + i * 0.07);
-      g.gain.exponentialRampToValueAtTime(0.09, t + i * 0.07 + 0.015);
-      g.gain.exponentialRampToValueAtTime(0.0001, t + i * 0.07 + 0.12);
-      o.connect(g).connect(ctx.destination);
-      o.start(t + i * 0.07);
-      o.stop(t + i * 0.07 + 0.15);
-    });
-  } catch {
-    /* no audio device */
-  }
+/** Interface sound (style and on/off in the Voice tab). */
+export function cue(kind: Sfx) {
+  playSfx(kind);
 }
 
 /** "Control+Alt+Digit1" → "Ctrl + Alt + 1" */
@@ -394,16 +505,22 @@ function typeIntoField(el: HTMLElement, text: string): boolean {
   return false;
 }
 
+/** The main shortcut talks to the operator assistant (Voice tab → "Main shortcut talks to"). */
+export function wantsOperator(): boolean {
+  return useApp.getState().settings.voiceMainTarget === "operator" && !!voiceHooks.ensureOperator;
+}
+
+function fieldTarget(): boolean {
+  if (!document.hasFocus()) return false;
+  const el = editableField(document.activeElement);
+  if (el) field = el;
+  return !!el;
+}
+
 function resolveTarget(target: string): string | null {
   const st = useApp.getState();
   // Main shortcut while you are typing in a field of the cockpit: dictate into that field.
-  if (target === "focused" && document.hasFocus()) {
-    const el = editableField(document.activeElement);
-    if (el) {
-      field = el;
-      return FIELD_TARGET;
-    }
-  }
+  if (target === "focused" && fieldTarget()) return FIELD_TARGET;
   if (target.startsWith("pane:")) {
     const n = Number(target.slice(5));
     return voiceChoices().find((c) => c.n === n)?.id ?? null;
@@ -507,6 +624,11 @@ async function onShortcut(target: string, ev: ShortcutEvent) {
     return;
   }
   if (ev.state === "Pressed") {
+    if (v.state === "sending") {
+      // Pressed again while the countdown runs: send right now.
+      sendNow();
+      return;
+    }
     if (v.state === "recording") {
       // Second press after a tap: stop.
       if (Date.now() - pressedAt > TAP_MS) await stopDictation();
@@ -514,6 +636,10 @@ async function onShortcut(target: string, ev: ShortcutEvent) {
     }
     if (v.state === "transcribing") return;
     pressedAt = Date.now();
+    if (target === "focused" && wantsOperator() && !fieldTarget()) {
+      await talkToOperator();
+      return;
+    }
     const id = resolveTarget(target);
     if (!id) {
       useApp.getState().toast(
@@ -529,15 +655,158 @@ async function onShortcut(target: string, ev: ShortcutEvent) {
   }
 }
 
-let endOfSpeech: ((level: number) => boolean) | null = null;
+let endOfSpeech: ((level: number) => boolean | "timeout") | null = null;
 
-export async function startDictation(id: string) {
+/**
+ * M15 — backchannel: while you talk for longer, a soft "mhm" in a short breath pause shows that it
+ * is listening (people do this every few seconds). Pure, unit tested.
+ */
+export function backchannelDetector(frameMs = 80, everyMs = 5000, pauseMs = 320, endMs = 900) {
+  let talked = 0;
+  let quiet = 0;
+  let floor = Infinity;
+  let frames = 0;
+  return (level: number): boolean => {
+    frames++;
+    if (frames <= 5) floor = Math.min(floor, level);
+    const speech = level >= Math.max(0.012, (Number.isFinite(floor) ? floor : 0) * 3);
+    if (speech) {
+      talked += frameMs;
+      quiet = 0;
+      return false;
+    }
+    quiet += frameMs;
+    // a breath pause after enough talking — not the end of the sentence (that would cut in)
+    if (talked >= everyMs && quiet >= pauseMs && quiet < endMs - frameMs) {
+      talked = 0;
+      return true;
+    }
+    return false;
+  };
+}
+let backchannel: ((level: number) => boolean) | null = null;
+
+// ---------------------------------------------------------------------------
+// Full duplex: while the assistant speaks in a conversation, the microphone already records.
+// When you start talking it stops at once and your words (from their first syllable) are the
+// next message. The assistant's own voice reaches the mic as echo: the detector learns how loud
+// that echo is during the first second and only reacts to clearly more.
+// ---------------------------------------------------------------------------
+
+interface Monitor {
+  id: string;
+  since: number;
+  /** quietest mic level seen (the room), for the silence detector after a barge-in */
+  floor: number;
+}
+let monitor: Monitor | null = null;
+
+/** Echo-aware barge-in detector (pure, unit tested): feed mic and output levels every frame. */
+export function bargeInDetector(calibrateMs = 1200, frameMs = 80) {
+  let t = 0;
+  const ratios: number[] = [];
+  let k: number | null = null;
+  let floor = Infinity;
+  let hits = 0;
+  return (mic: number, out: number): boolean => {
+    t += frameMs;
+    floor = Math.min(floor, mic);
+    if (k === null) {
+      if (out > 0.05) ratios.push(mic / out);
+      if (t >= calibrateMs) {
+        const r = [...ratios].sort((a, b) => a - b);
+        k = r.length ? r[Math.floor((r.length - 1) * 0.9)] : 0.3;
+      }
+      return false;
+    }
+    const echo = k * out;
+    const loud = mic > echo * 1.8 + Math.max(0.012, floor * 3);
+    hits = loud ? hits + 1 : Math.max(0, hits - 1);
+    return hits >= 4;
+  };
+}
+let detect: ((mic: number, out: number) => boolean) | null = null;
+
+/** Start listening while the assistant speaks (conversations with a neural voice only). */
+export async function startMonitor(id: string) {
+  const st = useApp.getState();
+  if (st.settings.voiceBargeIn === false || !neuralVoice() || monitor || st.voice.state !== "idle") return;
+  try {
+    await api.sttStart(id);
+    monitor = { id, since: Date.now(), floor: Infinity };
+    detect = bargeInDetector();
+  } catch {
+    monitor = null; // microphone busy: no barge-in this time
+  }
+}
+
+export async function stopMonitor() {
+  if (!monitor) return;
+  monitor = null;
+  detect = null;
+  await api.sttCancel().catch(() => {});
+}
+
+/** The recording that was already running becomes the dictation (keeps the last `keepMs`). */
+async function adopt(m: Monitor, keepMs: number) {
+  const st = useApp.getState();
+  await api.sttKeepRecent(keepMs).catch(() => {});
+  const silence = Number(st.settings.voiceTalkSilenceMs ?? 900);
+  endOfSpeech = silenceDetector(silence > 0 ? silence : 900, 80, Number(st.settings.voiceStandbyMs ?? 8000), Number.isFinite(m.floor) ? m.floor : 0.004);
+  st.setVoice({ state: "recording", target: m.id, level: 0, conversation: true });
+  backchannel = st.settings.voiceBackchannel !== false ? backchannelDetector() : null;
+}
+
+async function bargeIn() {
+  const m = monitor;
+  if (!m) return;
+  monitor = null;
+  detect = null;
+  stopSpeaking(true);
+  playSfx("switch");
+  await adopt(m, 450);
+  logVoice({ heard: "(interrupted)", to: useApp.getState().sessions[m.id]?.name ?? "?", what: "barge-in" });
+}
+/** Recognised nothing this many times in a row in a conversation → end it. */
+let emptyTurns = 0;
+
+/** Wake the operator (if needed) and start a conversation with it. */
+export async function talkToOperator() {
+  const st = useApp.getState();
+  let op = voiceHooks.operatorSession?.() ?? null;
+  if (!op && voiceHooks.ensureOperator) {
+    playSfx("switch");
+    op = await voiceHooks.ensureOperator();
+  }
+  if (!op) return;
+  if (st.settings.voiceOperatorTalk !== false) useApp.setState({ talkSession: op });
+  stopSpeaking();
+  await startDictation(op, { conversation: st.settings.voiceOperatorTalk !== false });
+}
+
+export async function startDictation(id: string, opts: { conversation?: boolean } = {}) {
   const st = useApp.getState();
   if (st.voice.state !== "idle") return;
-  const silence = Number(st.settings.voiceSilenceMs ?? 1500);
-  const talking = st.talkSession === id; // a conversation always ends a turn on silence
-  endOfSpeech = st.settings.voiceStopOnSilence === false && !talking ? null : silenceDetector(silence > 0 ? silence : 1500);
-  st.setVoice({ state: "recording", target: id, level: 0 });
+  // The microphone is already open (it listened while the answer was read): carry on with it.
+  if (monitor) {
+    const m = monitor;
+    monitor = null;
+    detect = null;
+    if (m.id === id) {
+      await adopt(m, 300);
+      cue("start");
+      return;
+    }
+    await api.sttCancel().catch(() => {});
+  }
+  const talking = st.talkSession === id || !!opts.conversation; // a conversation always ends a turn on silence
+  // In a conversation a turn ends sooner: people take over after ~200 ms, 1.5 s feels robotic.
+  const silence = talking ? Number(st.settings.voiceTalkSilenceMs ?? 900) : Number(st.settings.voiceSilenceMs ?? 1500);
+  // Nobody speaks: a conversation goes to standby after a while, a single dictation stops later.
+  const noSpeech = talking ? voiceHooks.listenTimeoutMs?.(id) ?? Number(st.settings.voiceStandbyMs ?? 8000) : 15000;
+  endOfSpeech = st.settings.voiceStopOnSilence === false && !talking ? null : silenceDetector(silence > 0 ? silence : 1500, 80, noSpeech);
+  st.setVoice({ state: "recording", target: id, level: 0, conversation: talking });
+  backchannel = talking && st.settings.voiceBackchannel !== false ? backchannelDetector() : null;
   try {
     await api.sttStart(id);
     cue("start");
@@ -559,12 +828,13 @@ export async function toggleDictation(id: string) {
   }
 }
 
-export async function cancelDictation() {
+export async function cancelDictation(endTalk = true) {
   const st = useApp.getState();
+  if (endTalk) void stopMonitor();
   if (st.voice.state !== "recording") return;
   await api.sttCancel().catch(() => {});
   st.setVoice({ state: "idle", target: null, level: 0 });
-  if (st.talkSession) useApp.setState({ talkSession: null }); // Esc ends a voice conversation
+  if (endTalk && st.talkSession) useApp.setState({ talkSession: null }); // Esc ends a voice conversation
   await disarmPicker();
   if (hotkeysDirty) void syncHotkeys();
 }
@@ -596,9 +866,16 @@ export async function stopDictation(send = false) {
   // Esc stays armed while Whisper works, so you can still take it back (also from other programs).
   await disarmPicker();
   await register("Escape", (ev: ShortcutEvent) => { if (ev.state === "Pressed") discardTranscription(); }).catch(() => {});
+  const inTalk = !!st.voice.conversation && !!chosen && useApp.getState().talkSession === chosen;
+  /** Listen for the next sentence of the conversation. */
+  const again = () => {
+    const now = useApp.getState();
+    if (inTalk && now.talkSession === chosen && now.voice.state === "idle") void startDictation(chosen!, { conversation: true });
+  };
   try {
     const r = await api.sttStop();
     if (discarded === job) return;
+    if (r.text) emptyTurns = 0;
     if (chosen === FIELD_TARGET) {
       const el = field;
       field = null;
@@ -610,9 +887,52 @@ export async function stopDictation(send = false) {
       return;
     }
     const target = chosen && useApp.getState().sessions[chosen] ? chosen : r.target;
-    const control = r.text && useApp.getState().settings.voiceCommands !== false ? parseControl(r.text) : null;
+    if (!r.text && inTalk) {
+      // Noise, a cough: listen once more, then go to standby.
+      if (++emptyTurns >= 3) {
+        emptyTurns = 0;
+        useApp.setState({ talkSession: null });
+        signal("standby", phrase("standby"));
+      } else {
+        window.setTimeout(again, 200);
+      }
+      return;
+    }
+    const commands = useApp.getState().settings.voiceCommands !== false;
+    // how much it talks, before everything else: „sprich erstmal nicht“, „sprich wieder“, „sprich weniger“ …
+    const speech = r.text && commands ? spokenSpeechControl(r.text) : null;
+    if (speech) {
+      logVoice({ heard: r.text, to: "Cockpit", what: `speech: ${speech}` });
+      await applySpeechControl(speech, { sessionId: chosen, then: inTalk ? again : undefined });
+      return;
+    }
+    // the board's presentation ("weiter", "zurück", "tiefer") and other Pro commands
+    if (r.text && commands && voiceHooks.spokenCommand?.(r.text, inTalk ? again : undefined)) {
+      dropHeldSpeech();
+      logVoice({ heard: r.text, to: "Cockpit", what: "command" });
+      return;
+    }
+    // "warte" — it stopped and waits; "weiter" — it continues where it stopped
+    const pr = r.text && commands ? pauseOrResume(r.text) : null;
+    if (pr === "pause") {
+      stopFillers();
+      playSfx("standby");
+      logVoice({ heard: r.text, to: "Cockpit", what: "paused" });
+      useApp.getState().toast(useApp.getState().settings.voiceLanguage === "en" ? "⏸ Paused — say “go on” to continue" : "⏸ Pausiert — sag „weiter“, dann geht's weiter", "info");
+      if (inTalk) window.setTimeout(again, 250);
+      return;
+    }
+    if (pr === "resume" && hasHeldSpeech()) {
+      logVoice({ heard: r.text, to: "Cockpit", what: "resumed" });
+      resumeSpeech();
+      if (inTalk && chosen) void startMonitor(chosen);
+      return;
+    }
+    if (r.text) dropHeldSpeech();
+    const control = r.text && commands ? parseControl(r.text) : null;
     if (control) {
-      const done = await runControl(control);
+      logVoice({ heard: r.text, to: "Cockpit", what: "command" });
+      const done = await runControl(control, inTalk ? again : undefined);
       useApp.getState().toast(`🎤 Command: ${done}`, "ok");
       return;
     }
@@ -626,14 +946,57 @@ export async function stopDictation(send = false) {
     useApp.getState().toast(`Dictation failed: ${errMsg(e)}`, "error");
   } finally {
     await unregister("Escape").catch(() => {});
-    if (discarded !== job) {
+    if (discarded !== job && useApp.getState().voice.state === "transcribing") {
       useApp.getState().setVoice({ state: "idle", target: null, level: 0 });
-      if (hotkeysDirty) void syncHotkeys();
     }
+    if (discarded !== job && hotkeysDirty) void syncHotkeys();
   }
 }
 
-/** Type the text into the session; Enter if said ("…, absenden") or auto-send is on. */
+// Countdown before a dictation is sent: Esc keeps it typed but unsent, Enter or the shortcut sends now.
+let countdown: { resolve: (go: boolean) => void; timer: number } | null = null;
+
+export function sendNow() {
+  const c = countdown;
+  if (!c) return;
+  countdown = null;
+  window.clearTimeout(c.timer);
+  c.resolve(true);
+}
+export function holdSending() {
+  const c = countdown;
+  if (!c) return;
+  countdown = null;
+  window.clearTimeout(c.timer);
+  c.resolve(false);
+}
+
+async function waitToSend(id: string, text: string, ms: number): Promise<boolean> {
+  const st = useApp.getState();
+  st.setVoice({ state: "sending", target: id, level: 0, text, until: Date.now() + ms });
+  const keys: [string, () => void][] = [["Escape", holdSending], ["Enter", sendNow]];
+  for (const [k, run] of keys) await register(k, (ev: ShortcutEvent) => { if (ev.state === "Pressed") run(); }).catch(() => {});
+  const go = await new Promise<boolean>((resolve) => {
+    countdown = { resolve, timer: window.setTimeout(() => sendNow(), ms) };
+  });
+  await unregister(keys.map(([k]) => k)).catch(() => {});
+  if (useApp.getState().voice.state === "sending") useApp.getState().setVoice({ state: "idle", target: null, level: 0 });
+  if (hotkeysDirty) void syncHotkeys();
+  return go;
+}
+
+/** Plain sessions don't know the 🎙 convention: ask them for a short answer. */
+function shortAnswerHint(): string {
+  if (useApp.getState().settings.voiceShortAnswers === false) return "";
+  return useApp.getState().settings.voiceLanguage === "en"
+    ? " (spoken — please answer in two to four short sentences, no code)"
+    : " (gesprochen – bitte antworte kurz in zwei bis vier Sätzen, ohne Code)";
+}
+
+/**
+ * Send the text to the session: at once in a conversation or when "…, absenden" was said, after a
+ * short countdown when auto-send is on (default), else only typed for you to check.
+ */
 export async function deliver(id: string, text: string, send: boolean) {
   const st = useApp.getState();
   const s = st.sessions[id];
@@ -645,16 +1008,48 @@ export async function deliver(id: string, text: string, send: boolean) {
   if (!s?.runtime?.running) {
     await navigator.clipboard?.writeText(text).catch(() => {});
     st.toast(`"${s?.name ?? "Session"}" is not running — text copied to the clipboard`, "warn");
+    logVoice({ heard: text, to: s?.name ?? "?", what: "not running" });
     return;
   }
-  // In a voice conversation the message goes out at once, marked as spoken (short spoken answers).
   const talking = st.talkSession === id;
-  await api.ptyWrite(id, talking ? `🎙 ${text}` : text);
-  if (send || talking || st.settings.voiceAutoSend === true) {
-    await new Promise((r) => setTimeout(r, 150));
-    await api.ptyWrite(id, "\r");
+  let msg = text;
+  if (voiceHooks.beforeSend) {
+    const r = await voiceHooks.beforeSend(id, text, true);
+    if (r === null) {
+      logVoice({ heard: text, to: s.name, what: "handled" });
+      return; // consumed, e.g. "yes" confirmed the operator's pending actions
+    }
+    msg = r;
   }
-  st.toast(`🎤 ${s.name}: ${text.length > 90 ? text.slice(0, 90) + "…" : text}${send || st.settings.voiceAutoSend === true ? " ⏎" : ""}`, "ok");
+  // In a conversation the message is marked as spoken, so the answer is short and speakable.
+  if (talking) msg = assistantOf(st.assistants, id) ? `🎙 ${msg}` : `🎙 ${msg}${shortAnswerHint()}`;
+  // the answer to this turn was asked for by voice: it may be spoken (speakPolicy)
+  noteVoiceTurn(id, text);
+  if (msg !== text) noteVoiceTurn(id, msg); // e.g. "(The user declined …)" in front of the snapshot
+  const auto = send || talking || st.settings.voiceAutoSend !== false;
+  if (!auto) {
+    await api.ptyWrite(id, msg);
+    st.toast(`🎤 ${s.name}: ${text.length > 90 ? text.slice(0, 90) + "…" : text}`, "ok");
+    logVoice({ heard: text, to: s.name, what: "typed" });
+    return;
+  }
+  const delay = send || talking ? 0 : Math.max(0, Number(st.settings.voiceSendDelayMs ?? 1200) || 0);
+  if (delay > 0 && !(await waitToSend(id, text, delay))) {
+    await api.ptyWrite(id, msg); // typed, not sent: check or edit it in the terminal
+    playSfx("switch");
+    st.toast(`Not sent — the text is in ${s.name}, press Enter there to send it`, "info");
+    logVoice({ heard: text, to: s.name, what: "held" });
+    return;
+  }
+  if (!(await st.queueInput(id, msg))) return;
+  if (talking) {
+    // In a conversation: acknowledge at once, the answer takes a few seconds.
+    playSfx("send");
+    // "Okay." at once, then — if the answer takes a while — "Moment.", "Ich bin noch dran." …
+    if (st.settings.voiceAck !== false) acknowledge(id, text, st.settings.voiceFillers !== false);
+  } else signal("send", phrase("sent"));
+  st.toast(`🎤 ${s.name}: ${text.length > 90 ? text.slice(0, 90) + "…" : text} ⏎`, "ok");
+  logVoice({ heard: text, to: s.name, what: talking ? "conversation" : "sent" });
 }
 
 /** Wire events once: level meter, Esc to cancel, keep shortcuts in sync with sessions/settings. */
@@ -662,11 +1057,33 @@ export async function initVoice() {
   if (listening) return;
   listening = true;
   await listen<{ level: number }>("stt-level", (ev) => {
+    if (monitor && detect) {
+      monitor.floor = Math.min(monitor.floor, ev.payload.level);
+      if (detect(ev.payload.level, outputLevel())) void bargeIn();
+      return;
+    }
     const v = useApp.getState().voice;
     if (v.state !== "recording") return;
     useApp.getState().setVoice({ ...v, level: ev.payload.level });
+    if (v.conversation && backchannel?.(ev.payload.level)) playSfx("backchannel");
     // Finished speaking: stop by itself (and send, if "Press Enter after every dictation" is on).
-    if (endOfSpeech?.(ev.payload.level)) {
+    const end = endOfSpeech?.(ev.payload.level);
+    if (end === "timeout") {
+      // Nobody said anything: a conversation goes to standby, a single dictation is dropped.
+      endOfSpeech = null;
+      const talk = useApp.getState().talkSession;
+      void cancelDictation(false).then(() => {
+        // silence can mean something (a presentation goes on to the next slide)
+        const listen = () => {
+          if (useApp.getState().talkSession === talk && useApp.getState().voice.state === "idle") void startDictation(talk!, { conversation: true });
+        };
+        if (talk && voiceHooks.onSilence?.(talk, listen)) return;
+        if (talk) {
+          useApp.setState({ talkSession: null });
+          signal("standby", phrase("standby"));
+        } else playSfx("stop");
+      });
+    } else if (end) {
       endOfSpeech = null;
       void stopDictation();
     }
@@ -679,6 +1096,10 @@ export async function initVoice() {
     } else if (e.key === "Escape" && state === "transcribing") {
       e.preventDefault();
       discardTranscription();
+    } else if (state === "sending" && (e.key === "Escape" || e.key === "Enter")) {
+      e.preventDefault();
+      if (e.key === "Escape") holdSending();
+      else sendNow();
     }
   }, true);
   useApp.subscribe((st, prev) => {

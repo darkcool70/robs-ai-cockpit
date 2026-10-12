@@ -1,8 +1,10 @@
 import type { Account, QuotaWindow, Session } from "./api";
+import { AGENT_PROVIDERS } from "./providers";
 
 /**
  * Best other account to continue a rate-limited conversation on: same provider, logged in,
- * not limited right now, lowest known 5-hour usage. Pure (unit tested).
+ * not limited right now, lowest known 5-hour usage. `avoid`: accounts to skip (e.g. a fresh
+ * model / login failure, see accountHealth.ts). Pure (unit tested).
  */
 export function pickFailoverAccount(
   s: Pick<Session, "provider" | "accountId">,
@@ -10,6 +12,7 @@ export function pickFailoverAccount(
   quota: Record<string, QuotaWindow[]>,
   sessions: Pick<Session, "accountId" | "runtime" | "status">[],
   now = Date.now(),
+  avoid?: ReadonlySet<string>,
 ): Account | null {
   const limitedNow = new Set(sessions.filter((x) => (x.runtime?.status ?? x.status) === "rate-limited").map((x) => x.accountId));
   const usage = (a: Account) => {
@@ -17,7 +20,7 @@ export function pickFailoverAccount(
     return windows.length ? Math.max(...windows.map((w) => w.usedPercent)) : null;
   };
   const candidates = accounts
-    .filter((a) => a.provider === s.provider && a.id !== s.accountId && a.authStatus === "connected" && !limitedNow.has(a.id))
+    .filter((a) => a.provider === s.provider && a.id !== s.accountId && a.authStatus === "connected" && !limitedNow.has(a.id) && !avoid?.has(a.id))
     .map((a) => ({ a, u: usage(a) }))
     .filter((x) => x.u == null || x.u < 95);
   candidates.sort((x, y) => (x.u ?? 50) - (y.u ?? 50));
@@ -26,17 +29,19 @@ export function pickFailoverAccount(
 
 /**
  * Account with the most quota left per provider (logged in, not limited now). Used to
- * preselect / recommend an account for new work. Pure (unit tested).
+ * preselect / recommend an account for new work; an account in `avoid` only when it is the
+ * provider's only one. Pure (unit tested).
  */
 export function bestAccounts(
   accounts: Account[],
   quota: Record<string, QuotaWindow[]>,
   sessions: Pick<Session, "accountId" | "runtime" | "status">[],
   now = Date.now(),
+  avoid?: ReadonlySet<string>,
 ): Partial<Record<Account["provider"], { id: string; usedPercent: number | null }>> {
   const out: Partial<Record<Account["provider"], { id: string; usedPercent: number | null }>> = {};
-  for (const provider of ["claude", "codex"] as const) {
-    const pick = pickFailoverAccount({ provider, accountId: null }, accounts, quota, sessions, now);
+  for (const provider of AGENT_PROVIDERS) {
+    const pick = pickFailoverAccount({ provider, accountId: null }, accounts, quota, sessions, now, avoid) ?? pickFailoverAccount({ provider, accountId: null }, accounts, quota, sessions, now);
     if (!pick) continue;
     const windows = (quota[pick.id] ?? []).filter((w) => !w.resetsAt || w.resetsAt * 1000 > now);
     out[provider] = { id: pick.id, usedPercent: windows.length ? Math.max(...windows.map((w) => w.usedPercent)) : null };

@@ -16,6 +16,7 @@ import { assistantOf, moodOf } from "../lib/assistants";
 import * as terms from "../lib/terminals";
 import { Badge, Button, cx, IconButton, Kbd, ProviderMark, StatusDot } from "./ui";
 import { Inspector } from "./Inspector";
+import { WorkspaceHint } from "@pro/FirstSteps";
 
 /** Panes per row: up to 3 side by side, then two rows (5 = 3+2, 8 = 4+4). */
 export function rowsFor(n: number): number[] {
@@ -392,6 +393,7 @@ function PaneView({ index, id }: { index: number; id: string | null }) {
               <Plus size={14} /> New session
             </Button>
             {hidden > 0 && <span className="text-[11px] text-faint">or drag one of {hidden} running session{hidden === 1 ? "" : "s"} here from the bar below</span>}
+            <WorkspaceHint index={index} />
           </>
         )}
         {mode !== "tabs" && <span className="text-[11px] text-faint">Pane {index + 1} · <Kbd>Ctrl {index + 1}</Kbd></span>}

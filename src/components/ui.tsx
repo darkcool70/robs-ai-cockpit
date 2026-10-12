@@ -2,6 +2,7 @@ import { clsx } from "clsx";
 import { X } from "lucide-react";
 import { useEffect, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type SelectHTMLAttributes } from "react";
 import type { Provider, SessionStatus } from "../lib/api";
+import { isFreeTier, providerInfo } from "../lib/providers";
 
 export const cx = clsx;
 
@@ -81,16 +82,30 @@ export function Kbd({ children }: { children: ReactNode }) {
 }
 
 export function ProviderMark({ provider, className }: { provider: Provider; className?: string }) {
+  const info = providerInfo(provider);
+  // the free-tier CLIs have no theme colour of their own: their colour, faintly behind
+  const own = info && provider !== "claude" && provider !== "codex" ? { color: info.color, background: `color-mix(in srgb, ${info.color} 15%, transparent)` } : undefined;
   return (
     <span
       className={cx(
         "inline-flex h-4 min-w-4 items-center justify-center rounded-sm px-1 font-mono text-[9.5px] font-bold uppercase",
-        provider === "claude" ? "bg-claude/15 text-claude" : provider === "codex" ? "bg-codex/15 text-codex" : "bg-accent/15 text-accent",
+        provider === "claude" ? "bg-claude/15 text-claude" : provider === "codex" ? "bg-codex/15 text-codex" : own ? "" : "bg-accent/15 text-accent",
         className,
       )}
-      title={provider === "claude" ? "Claude Code" : provider === "codex" ? "Codex CLI" : "Custom CLI"}
+      style={own}
+      title={info?.label ?? "Custom CLI"}
     >
-      {provider === "claude" ? "CC" : provider === "codex" ? "CX" : "AI"}
+      {info?.short ?? "AI"}
+    </span>
+  );
+}
+
+/** Small "free" label for accounts on a free tier (Copilot Free, Antigravity's free quota). */
+export function FreeBadge({ provider }: { provider: Provider }) {
+  if (!isFreeTier(provider)) return null;
+  return (
+    <span className="rounded-sm bg-ok/15 px-1 text-[9.5px] font-semibold uppercase tracking-wide text-ok" title="Free tier: small quota, used first for simple work and research crews">
+      free
     </span>
   );
 }
@@ -101,6 +116,7 @@ const STATUS_STYLE: Record<string, { dot: string; label: string }> = {
   working: { dot: "bg-accent animate-pulse", label: "working" },
   "waiting-for-input": { dot: "bg-ok", label: "waiting for input" },
   "rate-limited": { dot: "bg-warn", label: "rate limited" },
+  error: { dot: "bg-err", label: "error" },
   stopped: { dot: "bg-line-strong", label: "stopped" },
   failed: { dot: "bg-err", label: "failed" },
 };

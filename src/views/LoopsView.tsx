@@ -290,7 +290,8 @@ function LoopEditor({ initial, templates, onClose, onSaved }: { initial: Partial
                 <Field label="Supervisor account" hint="Runs in the background with this login">
                   <Select value={supAccount} onChange={(e) => setSupAccount(e.target.value)}>
                     <option value="">Same as the session</option>
-                    {accounts.filter((x) => x.provider !== "custom").map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
+                    {/* the one-shot supervisor call exists for Claude and Codex only (goal.rs) */}
+                    {accounts.filter((x) => x.provider === "claude" || x.provider === "codex").map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}
                   </Select>
                 </Field>
                 <Field label="Supervisor model" hint="Small and cheap is enough">

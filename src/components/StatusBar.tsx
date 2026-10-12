@@ -48,7 +48,8 @@ export function StatusBar() {
         })}
       </button>
       <span className="ml-auto flex items-center gap-3">
-        {clis.map((c) => (
+        {/* an optional CLI that is not installed only shows when an account needs it */}
+        {clis.filter((c) => c.path || c.provider === "claude" || c.provider === "codex" || accounts.some((a) => a.provider === c.provider)).map((c) => (
           <span key={c.provider} title={c.path ?? "not found"} className={c.path ? "" : "text-err"}>
             {c.provider} {c.version ? c.version.replace(/\s*\(.*\)/, "").replace(/^codex-cli /, "") : "missing"}
           </span>

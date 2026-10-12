@@ -18,6 +18,7 @@ import {
 } from "./lib/api";
 import * as terms from "./lib/terminals";
 import { pickFailoverAccount } from "./lib/failover";
+import { clearIssue, healthUpdate, readIssues, troubledAccounts, withAccountModel, type AccountIssues } from "./lib/accountHealth";
 import type { Voice } from "./lib/voice";
 
 /** Tray/taskbar attention; unavailable in tests and plain browsers. */
@@ -55,7 +56,7 @@ const startedAt: Record<string, number> = {};
 /** Last automatic account switch per session (avoid ping-pong between exhausted accounts). */
 const failoverAt: Record<string, number> = {};
 
-export type View = "overview" | "workspace" | "assistants" | "tasks" | "review" | "pins" | "loops" | "accounts" | "history" | "usage" | "security" | "settings";
+export type View = "overview" | "workspace" | "assistants" | "voice" | "tasks" | "review" | "pins" | "loops" | "accounts" | "history" | "usage" | "security" | "settings";
 export type LayoutMode = "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "tabs";
 
 export const MAX_PANES = 8;
@@ -247,7 +248,7 @@ function onTaskProgress(sessionId: string, prev: string | undefined, rt: Runtime
       // Custom CLIs report no "last answer": take the end of what is on screen.
       const result = rt.lastMessage
         ? Promise.resolve(rt.lastMessage)
-        : s?.provider === "custom"
+        : s?.provider === "custom" || s?.provider === "antigravity"
           ? api.ptyScreen(sessionId).then((scr) => scr.split("\n").map((l) => l.trimEnd()).filter(Boolean).slice(-15).join("\n")).catch(() => "")
           : Promise.resolve(t.result ?? "");
       void result
@@ -288,6 +289,19 @@ function onContext(s: Session, rt: RuntimeView) {
     "warn",
     { label: "Compact (/compact)", run: () => void useApp.getState().queueInput(s.id, "/compact") },
   );
+}
+
+/** Account health (lib/accountHealth.ts): remember a turn that failed on the model / login, forget it after a good turn. */
+function onAccountHealth(s: Session, rt: RuntimeView) {
+  const st = useApp.getState();
+  const next = healthUpdate(readIssues(st.settings), s.accountId, rt, s.requestedModel ?? null);
+  if (next) saveAccountIssues(next);
+}
+
+/** Write the account issues: in memory at once (a second failure right after must see the first), then persisted. */
+export function saveAccountIssues(next: AccountIssues) {
+  useApp.setState((x) => ({ settings: { ...x.settings, accountHealth: next } }));
+  void useApp.getState().setSetting("accountHealth", next);
 }
 
 /** Two agents editing the same file within a few minutes: warn (they overwrite each other). */
@@ -439,6 +453,8 @@ export const useApp = create<State>((set, get) => ({
     }
     const preferred = typeof settings.defaultProjectId === "string" && projects.some((p) => p.id === settings.defaultProjectId) ? settings.defaultProjectId : null;
     set({ info, clis, projects, accounts, sessions, order, mode, panes, quota, settings, activeProjectId: preferred ?? projects[0]?.id ?? null });
+    // sessions already stuck on a model / login error when the app starts count for account health too
+    for (const s of Object.values(sessions)) if (s.runtime) onAccountHealth(s, s.runtime);
 
     unlisten.push(await listen<RuntimeView>("session-runtime", (ev) => {
       const s = get().sessions[ev.payload.id];
@@ -454,7 +470,7 @@ export const useApp = create<State>((set, get) => ({
       const st = get();
       if (ev.payload.status === "rate-limited" && prev !== "rate-limited" && s.kind === "agent") {
         const acc = st.accounts.find((a) => a.id === s.accountId);
-        const alt = pickFailoverAccount(s, st.accounts, st.quota, Object.values(st.sessions));
+        const alt = pickFailoverAccount(s, st.accounts, st.quota, Object.values(st.sessions), Date.now(), troubledAccounts(readIssues(st.settings)));
         const canMove = !!alt && !!(ev.payload.providerSessionId ?? s.providerSessionId);
         const recent = Date.now() - (failoverAt[s.id] ?? 0) < 10 * 60_000;
         if (canMove && ev.payload.autoContinue && st.settings.autoFailover === true && !recent) {
@@ -476,6 +492,7 @@ export const useApp = create<State>((set, get) => ({
       }
       onTaskProgress(s.id, prev, ev.payload);
       onContext(s, ev.payload);
+      onAccountHealth(s, ev.payload);
       // "Ready / needs input" notifications: see lib/notify.ts (heads-up window).
       if (ev.payload.status !== prev && ["stopped", "failed"].includes(ev.payload.status)) {
         void get().refreshQuota();
@@ -503,6 +520,9 @@ export const useApp = create<State>((set, get) => ({
         });
       }
       if (s.kind === "login" && s.accountId) {
+        // logged in again: a remembered login failure no longer holds the account back
+        const issues = readIssues(get().settings);
+        if (issues[s.accountId]?.kind === "auth") saveAccountIssues(clearIssue(issues, s.accountId));
         void api.accountCheckAuth(s.accountId, true).catch(() => {}).then(() => get().refreshAccounts()).catch(() => {});
       } else if (s.kind !== "agent") {
         void get().refreshAccounts();
@@ -671,7 +691,8 @@ export const useApp = create<State>((set, get) => ({
 
   createSession: async (input, pane = null) => {
     try {
-      const s = await api.sessionCreate(input);
+      // the cockpit's model for this account (Accounts page) when none was chosen
+      const s = await api.sessionCreate(withAccountModel(input, get().settings));
       get().upsertSession(s);
       set((st) => ({ order: [...st.order, s.id], pendingStart: { ...st.pendingStart, [s.id]: true } }));
       get().showSession(s.id, pane);

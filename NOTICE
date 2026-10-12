@@ -10,5 +10,11 @@ The optional voice input downloads whisper.cpp (MIT, https://github.com/ggml-org
 and a Whisper model (MIT, https://huggingface.co/ggerganov/whisper.cpp) at the user's request;
 they are not part of this distribution.
 
+The optional voice output downloads Piper (MIT, https://github.com/rhasspy/piper) and Piper voices
+(https://huggingface.co/rhasspy/piper-voices; each voice under its own license, see its MODEL_CARD)
+at the user's request; they are not part of this distribution. PDF pages are rendered with pdf.js
+(Apache-2.0, https://github.com/mozilla/pdf.js). Pictures of PowerPoint slides are made by Microsoft
+PowerPoint when it is installed on the user's computer.
+
 "Claude" and "Claude Code" are trademarks of Anthropic, PBC. "OpenAI" and "Codex" are trademarks
 of OpenAI. This project is not affiliated with or endorsed by either company.

@@ -9,7 +9,7 @@
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -149,7 +149,7 @@ pub fn wav_bytes(samples: &[f32]) -> Vec<u8> {
     v
 }
 
-fn rms(s: &[f32]) -> f32 {
+pub(crate) fn rms(s: &[f32]) -> f32 {
     if s.is_empty() {
         return 0.0;
     }
@@ -226,7 +226,7 @@ struct Recording {
     handle: std::thread::JoinHandle<Result<Captured, String>>,
 }
 
-fn find_device(name: Option<&str>) -> Result<cpal::Device, String> {
+pub(crate) fn find_device(name: Option<&str>) -> Result<cpal::Device, String> {
     let host = cpal::default_host();
     if let Some(name) = name.filter(|n| !n.trim().is_empty()) {
         if let Ok(mut devs) = host.input_devices() {
@@ -245,7 +245,7 @@ pub fn input_devices() -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn build_stream<T>(device: &cpal::Device, config: &cpal::StreamConfig, buf: Arc<Mutex<Vec<f32>>>) -> Result<cpal::Stream, String>
+pub(crate) fn build_stream<T>(device: &cpal::Device, config: &cpal::StreamConfig, buf: Arc<Mutex<Vec<f32>>>) -> Result<cpal::Stream, String>
 where
     T: cpal::SizedSample,
     f32: cpal::FromSample<T>,
@@ -267,7 +267,17 @@ where
         .map_err(|e| format!("Could not open the microphone: {e}"))
 }
 
-fn record(device: Option<String>, stop: Receiver<()>, started: Sender<Result<(), String>>, level: impl Fn(f32)) -> Result<Captured, String> {
+/// Keep only the last `ms` milliseconds of `buf` (recorded at `rate`); returns the new length.
+pub fn keep_recent(buf: &mut Vec<f32>, rate: u32, ms: u32) -> usize {
+    let keep = (rate as u64 * ms as u64 / 1000) as usize;
+    if buf.len() > keep {
+        let drop = buf.len() - keep;
+        buf.drain(..drop);
+    }
+    buf.len()
+}
+
+fn record(device: Option<String>, stop: Receiver<()>, started: Sender<Result<(), String>>, trim: Arc<AtomicU32>, level: impl Fn(f32)) -> Result<Captured, String> {
     let open = || -> Result<(cpal::Stream, Arc<Mutex<Vec<f32>>>, u32), String> {
         let device = find_device(device.as_deref())?;
         let supported = device.default_input_config().map_err(|e| format!("Microphone not usable: {e}"))?;
@@ -302,6 +312,13 @@ fn record(device: Option<String>, stop: Receiver<()>, started: Sender<Result<(),
         match stop.recv_timeout(Duration::from_millis(80)) {
             Ok(()) | Err(RecvTimeoutError::Disconnected) => break,
             Err(RecvTimeoutError::Timeout) => {}
+        }
+        // Barge-in: everything before the user started talking (the assistant's own voice) goes.
+        let t = trim.swap(0, Ordering::SeqCst);
+        if t > 0 {
+            let mut b = buf.lock();
+            seen = keep_recent(&mut b, rate, t).min(seen);
+            loudest = 0.0;
         }
         let (r, len) = {
             let b = buf.lock();
@@ -366,7 +383,7 @@ fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
 
-fn download(url: &str, dest: &Path, sha256: &str, progress: &dyn Fn(u64, u64)) -> Result<(), String> {
+pub(crate) fn download(url: &str, dest: &Path, sha256: &str, progress: &dyn Fn(u64, u64)) -> Result<(), String> {
     let resp = agent(Duration::from_secs(1800)).get(url).call().map_err(|e| format!("Download failed: {e}"))?;
     if !resp.status().is_success() {
         return Err(format!("Download failed: HTTP {}", resp.status()));
@@ -443,6 +460,8 @@ pub struct Stt {
     installing: AtomicBool,
     /// Serialises server (re)starts between warm-up and transcription.
     starting: Mutex<()>,
+    /// Set to N: the running recording keeps only its last N ms (barge-in).
+    trim: Arc<AtomicU32>,
 }
 
 #[derive(Serialize)]
@@ -486,6 +505,11 @@ impl Stt {
             server_running: self.server.lock().is_some(),
             installing: self.installing.load(Ordering::SeqCst),
         }
+    }
+
+    /// Engine and this model are downloaded.
+    pub fn status_installed(&self, model_id: &str) -> bool {
+        server_exe().is_file() && model(model_id).is_some_and(|m| model_path(m).is_file())
     }
 
     pub fn install(&self, app: &AppHandle, model_id: &str) -> AppResult<()> {
@@ -571,10 +595,12 @@ impl Stt {
         let (started_tx, started_rx) = std::sync::mpsc::channel();
         let app2 = app.clone();
         let device = cfg.device.clone();
+        let trim = self.trim.clone();
+        trim.store(0, Ordering::SeqCst);
         let handle = std::thread::Builder::new()
             .name("stt-record".into())
             .spawn(move || {
-                record(device, stop_rx, started_tx, move |level| {
+                record(device, stop_rx, started_tx, trim, move |level| {
                     let _ = app2.emit("stt-level", json!({ "level": level }));
                 })
             })
@@ -592,6 +618,13 @@ impl Stt {
             let _ = me.ensure_server(&cfg.model, &cfg.language);
         });
         Ok(())
+    }
+
+    /// The running recording drops everything but its last `ms` milliseconds.
+    pub fn keep_recent(&self, ms: u32) {
+        if self.recording.lock().is_some() {
+            self.trim.store(ms.max(1), Ordering::SeqCst);
+        }
     }
 
     pub fn cancel(&self) {
@@ -680,6 +713,15 @@ fn transcribe(port: u16, wav: &[u8], vocabulary: &str) -> Result<String, String>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn barge_in_keeps_only_the_recent_audio() {
+        let mut b: Vec<f32> = (0..48_000).map(|i| i as f32).collect();
+        assert_eq!(keep_recent(&mut b, 48_000, 250), 12_000);
+        assert_eq!(b[0], 36_000.0, "the newest samples stay");
+        let mut short = vec![1.0f32; 100];
+        assert_eq!(keep_recent(&mut short, 48_000, 250), 100, "shorter than the window: untouched");
+    }
 
     #[test]
     fn transcripts_are_cleaned_and_send_word_detected() {

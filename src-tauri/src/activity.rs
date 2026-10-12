@@ -168,6 +168,23 @@ pub fn codex_activity(line: &str, ts: i64, cwd: Option<&str>) -> Vec<Activity> {
                 }
             }
         }
+        ("response_item", "message") => {
+            // Codex narrates by itself: "commentary" messages come while it works (M17), the
+            // "final_answer" arrives with task_complete
+            if p.get("role").and_then(|x| x.as_str()) == Some("assistant") && p.get("phase").and_then(|x| x.as_str()) == Some("commentary") {
+                let text: String = p
+                    .get("content")
+                    .and_then(|c| c.as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter_map(|c| c.get("text").and_then(|t| t.as_str()))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if !text.trim().is_empty() {
+                    out.push(Activity::new(ts, "interim", excerpt_lines(text.trim(), 1200), None));
+                }
+            }
+        }
         ("response_item", "custom_tool_call") | ("response_item", "function_call") => {
             let name = p.get("name").and_then(|x| x.as_str()).unwrap_or("");
             let input = p.get("input").or_else(|| p.get("arguments")).and_then(|x| x.as_str()).unwrap_or("");
@@ -226,6 +243,55 @@ pub fn claude_last_message(transcript: &Path) -> Option<String> {
         }
     }
     None
+}
+
+/// M17 — what the agent said so far in the running turn: the newest text block it wrote after the
+/// last prompt (Claude Code writes every block to the transcript as soon as it is complete, so a
+/// sentence written before a tool call is there while the tool runs). `tail` is the end of the
+/// transcript; None when the turn has no text yet.
+pub fn interim_from_tail(tail: &str) -> Option<String> {
+    for line in tail.lines().rev() {
+        let Ok(v) = serde_json::from_str::<Value>(line) else { continue };
+        let content = v.pointer("/message/content");
+        match v.get("type").and_then(|x| x.as_str()) {
+            Some("user") => {
+                // a real prompt (text, also the cockpit's 📡 results) ends the search; tool results don't
+                let prompt = match content {
+                    Some(Value::String(_)) => true,
+                    Some(Value::Array(a)) => a.iter().any(|c| c.get("type").and_then(|t| t.as_str()) == Some("text")),
+                    _ => false,
+                };
+                if prompt {
+                    return None;
+                }
+            }
+            Some("assistant") => {
+                let text: Vec<&str> = content
+                    .and_then(|c| c.as_array())
+                    .into_iter()
+                    .flatten()
+                    .filter(|c| c.get("type").and_then(|t| t.as_str()) == Some("text"))
+                    .filter_map(|c| c.get("text").and_then(|t| t.as_str()))
+                    .collect();
+                let joined = text.join("\n");
+                if !joined.trim().is_empty() {
+                    return Some(joined.trim().to_string());
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// `interim_from_tail` on the last 256 KB of a transcript file.
+pub fn claude_interim(transcript: &Path) -> Option<String> {
+    let mut f = std::fs::File::open(transcript).ok()?;
+    let len = f.metadata().ok()?.len();
+    f.seek(SeekFrom::Start(len.saturating_sub(256 * 1024))).ok()?;
+    let mut buf = Vec::new();
+    f.read_to_end(&mut buf).ok()?;
+    interim_from_tail(&String::from_utf8_lossy(&buf))
 }
 
 // ---------------------------------------------------------------------------
@@ -401,6 +467,33 @@ pub fn prune(c: &Connection, now_ms: i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn codex_commentary_is_its_interim_sentence() {
+        let line = r#"{"timestamp":"x","type":"response_item","payload":{"type":"message","role":"assistant","phase":"commentary","content":[{"type":"output_text","text":"Ich prüfe kurz die Tests."}]}}"#;
+        let a = codex_activity(line, 1, None);
+        assert_eq!(a.len(), 1);
+        assert_eq!((a[0].kind.as_str(), a[0].text.as_str()), ("interim", "Ich prüfe kurz die Tests."));
+        let fin = r#"{"timestamp":"x","type":"response_item","payload":{"type":"message","role":"assistant","phase":"final_answer","content":[{"type":"output_text","text":"Fertig."}]}}"#;
+        assert!(codex_activity(fin, 1, None).is_empty());
+    }
+
+    #[test]
+    fn interim_is_the_newest_text_of_the_running_turn() {
+        let l = |s: &str| s.to_string();
+        let prompt = l(r#"{"type":"user","message":{"content":"Erklär mir WebAssembly"}}"#);
+        let think = l(r#"{"type":"assistant","message":{"content":[{"type":"thinking","thinking":""}]}}"#);
+        let said = l(r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Ich recherchiere kurz zwei Quellen."}]}}"#);
+        let tool = l(r#"{"type":"assistant","message":{"content":[{"type":"tool_use","name":"WebFetch","input":{}}]}}"#);
+        let result = l(r#"{"type":"user","message":{"content":[{"type":"tool_result","content":"…"}]}}"#);
+        let old = l(r#"{"type":"assistant","message":{"content":[{"type":"text","text":"Alte Antwort."}]}}"#);
+        assert_eq!(interim_from_tail(&[old.clone(), prompt.clone(), think.clone(), said.clone(), tool.clone(), result.clone()].join("\n")).as_deref(), Some("Ich recherchiere kurz zwei Quellen."));
+        // nothing said yet in this turn: not the answer of the turn before
+        assert_eq!(interim_from_tail(&[old, prompt.clone(), think, tool].join("\n")), None);
+        // a results message with text is a new prompt
+        let results = l(r#"{"type":"user","message":{"content":[{"type":"text","text":"📡 Results"},{"type":"image"}]}}"#);
+        assert_eq!(interim_from_tail(&[prompt, said, results].join("\n")), None);
+    }
     use serde_json::json;
 
     #[test]

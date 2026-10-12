@@ -39,7 +39,9 @@ pub fn allowed_url(url: &str) -> bool {
     let Ok(u) = tauri::Url::parse(url) else { return false };
     u.scheme() == "https" && u.username().is_empty() && u.password().is_none()
         && u.port().is_none()
-        && matches!(u.host_str(), Some("claude.ai" | "claude.com" | "console.anthropic.com" | "platform.claude.com" | "auth.openai.com" | "chatgpt.com"))
+        && (matches!(u.host_str(), Some("claude.ai" | "claude.com" | "console.anthropic.com" | "platform.claude.com" | "auth.openai.com" | "chatgpt.com" | "accounts.google.com"))
+            // Copilot CLI's device login (github.com/login/device) — not the rest of GitHub
+            || (u.host_str() == Some("github.com") && u.path().starts_with("/login")))
 }
 
 pub fn open(url: &str, profile: PathBuf) -> AppResult<()> {
@@ -67,6 +69,9 @@ mod tests {
         assert!(allowed_url("https://claude.ai/oauth/authorize?state=test"));
         assert!(allowed_url("https://claude.com/oauth/authorize?state=test"));
         assert!(allowed_url("https://auth.openai.com/oauth/authorize?state=test"));
+        assert!(allowed_url("https://github.com/login/device"));
+        assert!(allowed_url("https://accounts.google.com/o/oauth2/v2/auth?client_id=x"));
+        assert!(!allowed_url("https://github.com/someone/repo"), "only GitHub's login pages");
         for url in ["http://claude.ai/", "https://claude.ai.evil.test/", "file:///C:/x", "https://user@claude.ai/", "https://claude.ai:8080/"] {
             assert!(!allowed_url(url), "{url}");
         }

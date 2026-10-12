@@ -4,12 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Robs AI Cockpit – run Claude Code and Codex agents side by side</title>
-<meta name="description" content="Free, open-source Windows app to run several Claude Code and OpenAI Codex CLI agents side by side: notifications when an agent needs you, local voice input, task board, token and quota analytics. Local-first, no telemetry.">
+<meta name="description" content="Windows app to run several Claude Code, OpenAI Codex and GitHub Copilot CLI agents side by side, with Atlas, an AI operator you talk to on a shared whiteboard: notifications when an agent needs you, natural offline voices, task board, token and quota analytics. Local-first, no telemetry.">
 <link rel="canonical" href="https://darkcool70.github.io/robs-ai-cockpit/">
 <link rel="icon" type="image/png" href="logo.png">
 <meta property="og:type" content="website">
 <meta property="og:title" content="Robs AI Cockpit – your AI coding team in one window">
-<meta property="og:description" content="Run Claude Code and Codex agents side by side. Pop-ups when an agent needs you, local voice input, task board, quota analytics. Free and open source.">
+<meta property="og:description" content="Run Claude Code and Codex agents side by side, steered by an AI operator you talk to on a shared whiteboard. Pop-ups when an agent needs you, natural offline voices, quota analytics. Open core.">
 <meta property="og:url" content="https://darkcool70.github.io/robs-ai-cockpit/">
 <meta property="og:image" content="https://darkcool70.github.io/robs-ai-cockpit/images/social-preview.png">
 <meta property="og:image:width" content="1280">
@@ -117,14 +117,14 @@ footer{border-top:1px solid var(--line);padding-block:28px 48px;color:var(--mute
 </nav>
 
 <header class="hero">
-  <span class="label">Claude Code + Codex · Windows · open source</span>
+  <span class="label">Claude Code + Codex + Copilot · Windows · open core</span>
   <h1>Your AI coding team, <em>in one window.</em></h1>
-  <p class="lede">Run several Claude Code and Codex agents side by side in real terminals. The cockpit tells you the moment one needs you, so you stop babysitting tabs.</p>
+  <p class="lede">Run several Claude Code and Codex agents side by side in real terminals. Talk to Atlas, your AI operator: it hands out the work and lays everything out on a calm, shared whiteboard. The cockpit tells you the moment an agent needs you, so you stop babysitting tabs.</p>
   <div class="ctas">
     <a class="btn btn-primary" href="https://github.com/darkcool70/robs-ai-cockpit/releases/latest">Download for Windows</a>
     <a class="btn btn-ghost" href="https://github.com/darkcool70/robs-ai-cockpit">★ Star on GitHub</a>
   </div>
-  <p class="fine">Free · Apache-2.0 · No account, no API key, no telemetry</p>
+  <p class="fine">Free core · Apache-2.0 · Pro with 7 days free · No account, no API key, no telemetry</p>
 </header>
 
 <img class="shot hero-shot" src="images/hero.png" width="1800" height="1199" alt="Four agents in one project: Claude waits for its limit reset while three Codex agents review, test and document">
@@ -143,6 +143,24 @@ footer{border-top:1px solid var(--line);padding-block:28px 48px;color:var(--mute
 </section>
 
 <section id="features">
+  <div class="feature">
+    <div class="text">
+      <span class="label">New in 0.4 · Pro · Atlas</span>
+      <h3>An operator you talk to, like a colleague who presents</h3>
+      <p>Ask by voice or text. Atlas answers with the result first, hands work to your agents and builds the board while it talks. "Stell es mir vor wie in einem Meeting" starts a presentation, and the slides follow its words. "Warum?" highlights the evidence on the board. It starts fast on Claude Haiku 5.5 and asks before switching to a bigger model.</p>
+    </div>
+    <img class="shot" src="images/atlas-present.jpg" width="1800" height="1078" loading="lazy" alt="Atlas presents a board section by section with a large section title, subtitles and the chat with card references">
+  </div>
+
+  <div class="feature flip">
+    <div class="text">
+      <span class="label">Whiteboard · Pro</span>
+      <h3>A board with order, not chaos</h3>
+      <p>Cards stand in sections from left to right, the way a project lead runs a board: goal and context, sources, numbers, findings, options, open questions, decision, next steps. Text never leaves its card, arrows run around cards and carry meaning, a ribbon toolbar groups every tool, and a trackpad pinch zooms smoothly. Light and dark.</p>
+    </div>
+    <img class="shot" src="images/atlas-board.png" width="1800" height="540" loading="lazy" alt="A research board in sections from left to right">
+  </div>
+
   <div class="feature">
     <div class="text">
       <span class="label">Notifications</span>
@@ -165,7 +183,7 @@ footer{border-top:1px solid var(--line);padding-block:28px 48px;color:var(--mute
     <div class="text">
       <span class="label">Voice · <kbd>Alt</kbd>+<kbd>Shift</kbd>+<kbd>Space</kbd></span>
       <h3>Talk to your agents from any app</h3>
-      <p>Hold the shortcut, speak, release. The text lands in the focused agent. Transcription runs locally with whisper.cpp, so your audio never leaves your computer.</p>
+      <p>Hold the shortcut, speak, release. The text lands in the focused agent. Transcription runs locally with whisper.cpp, so your audio never leaves your computer. Answers come back in natural voices that also run offline on your PC.</p>
     </div>
     <img class="shot" src="images/voice.png" width="1800" height="778" loading="lazy" alt="Voice input overlay with the target pane chooser">
   </div>
@@ -196,7 +214,9 @@ footer{border-top:1px solid var(--line);padding-block:28px 48px;color:var(--mute
     <div><h3>Auto-continue</h3><p>When a CLI reports a usage limit, the cockpit waits for the reset and types "continue" for you.</p></div>
     <div><h3>Night shift</h3><p>Agents work through the task list overnight and leave you a report in the morning.</p></div>
     <div><h3>Review and commit</h3><p>Per-file diffs with the agent that last touched each file. Commit yourself or let an agent do it.</p></div>
-    <div><h3>Other CLIs too</h3><p>Gemini CLI, Aider, Ollama and other terminal tools run as agents in the same grid.</p></div>
+    <div><h3>Free accounts too</h3><p>GitHub Copilot CLI (Copilot Free) runs as an agent with its own profiles and limit failover. Aider, Ollama and other terminal tools work too.</p></div>
+    <div><h3>Crews</h3><p>Several agents in separate git worktrees, reviewed by another agent; "Merge all" runs the tests on the main tree.</p></div>
+    <div><h3>Phone remote</h3><p>Follow and steer from your phone in your home network, with expiring keys and view-only links.</p></div>
     <div><h3>Command palette</h3><p><kbd>Ctrl</kbd>+<kbd>P</kbd> for everything, including a reusable prompt template library.</p></div>
   </div>
 </section>
@@ -216,10 +236,10 @@ footer{border-top:1px solid var(--line);padding-block:28px 48px;color:var(--mute
 </section>
 
 <section class="pro">
-  <span class="label">Coming soon · Pro</span>
-  <h2>Assistants that pursue a goal on their own</h2>
-  <p>Give an assistant a face, a personality and a goal. After every step a small supervisor model rates the progress and writes the next instruction, until the goal is reached or it needs you. Pro starts with 7 days free, no account and no card. Everything else stays free and open source.</p>
-  <p>Want to know when it's out? On GitHub, choose <b>Watch → Custom → Releases</b>.</p>
+  <span class="label">Pro · 7 days free</span>
+  <h2>Atlas, the whiteboard, and assistants that pursue a goal on their own</h2>
+  <p>The download includes Pro: Atlas with its whiteboard and presentations, and assistants with a face, a personality and a goal, where a small supervisor model rates every step and writes the next instruction. Try it 7 days free, no account and no card; then subscribe monthly or yearly in the app (Settings → Pro). Everything else stays free and open source, also after the trial.</p>
+  <p>New releases: on GitHub, choose <b>Watch → Custom → Releases</b>.</p>
   <img class="shot" src="images/assistant-room.png" width="1800" height="1166" loading="lazy" alt="An assistant working toward a goal: chat with supervisor notes next to its live terminal">
 </section>
 

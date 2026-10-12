@@ -70,7 +70,7 @@ export function VoiceSettings() {
 
   return (
     <Card className="space-y-3 p-3 text-[12.5px]">
-      <SectionTitle right={<Badge tone={installed ? "ok" : "warn"}>{installed ? "ready" : "not installed"}</Badge>}>Voice input (speech to text)</SectionTitle>
+      <SectionTitle right={<Badge tone={installed ? "ok" : "warn"}>{installed ? "ready" : "not installed"}</Badge>}>Speech recognition (Whisper)</SectionTitle>
       <p className="text-[11.5px] text-faint">
         Dictate commands into any session with a shortcut — also while another program is in front. Recognition runs locally with
         whisper.cpp; audio never leaves this computer. One-time download of the engine (8 MB, GitHub) and a model (Hugging Face), both verified by checksum.
@@ -181,30 +181,6 @@ export function VoiceSettings() {
           Also possible: a fixed shortcut for one session (keyboard button next to the mic in its pane header), or say its name first — “Claude B, …”, “Fenster 3, …”.
         </p>
       </div>
-
-      <label className="flex items-start gap-2">
-        <input type="checkbox" checked={settings.voiceStopOnSilence !== false} onChange={(e) => void setSetting("voiceStopOnSilence", e.target.checked)} className="mt-0.5" />
-        <span>
-          Stop recording when I stop talking
-          <span className="block text-[11.5px] text-faint">After about 1.5 seconds of quiet the text is transcribed. Esc while it is being transcribed discards it.</span>
-        </span>
-      </label>
-
-      <label className="flex items-start gap-2">
-        <input type="checkbox" checked={settings.voiceAutoSend === true} onChange={(e) => void setSetting("voiceAutoSend", e.target.checked)} className="mt-0.5" />
-        <span>
-          Press Enter after every dictation
-          <span className="block text-[11.5px] text-faint">Off: the text is typed and you can check it first. Either way, ending with "…absenden" / "…senden" / "…enter" sends it.</span>
-        </span>
-      </label>
-
-      <label className="flex items-start gap-2">
-        <input type="checkbox" checked={settings.voiceSounds !== false} onChange={(e) => void setSetting("voiceSounds", e.target.checked)} className="mt-0.5" />
-        <span>
-          Short sounds when recording starts and stops
-          <span className="block text-[11.5px] text-faint">So you know it is listening without looking.</span>
-        </span>
-      </label>
 
       <p className="rounded border border-line bg-hover/40 px-2 py-1.5 text-[11.5px] text-muted">
         <b className="text-fg">Tip — talk to any session by name:</b> start with its name and a short pause, e.g. “Claude B, run the tests”,

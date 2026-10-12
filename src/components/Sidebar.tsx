@@ -1,5 +1,5 @@
 import { open } from "@tauri-apps/plugin-dialog";
-import { BarChart3, FolderPlus, History, LayoutGrid, Settings, Shield, Users, FolderOpen, Trash2, Gauge, Repeat, KanbanSquare, GitPullRequestDraft, Pin, Sparkles } from "lucide-react";
+import { BarChart3, FolderPlus, History, LayoutGrid, Settings, Shield, Users, FolderOpen, Trash2, Gauge, Repeat, KanbanSquare, GitPullRequestDraft, Pin, Sparkles, AudioLines } from "lucide-react";
 import { useApp, type View } from "../store";
 import { api } from "../lib/api";
 import { sessionDrag } from "../lib/drag";
@@ -12,6 +12,7 @@ const NAV: { view: View; label: string; icon: typeof LayoutGrid }[] = [
   { view: "overview", label: "Overview", icon: Gauge },
   { view: "workspace", label: "Workspace", icon: LayoutGrid },
   { view: "assistants", label: "Assistants", icon: Sparkles },
+  { view: "voice", label: "Voice", icon: AudioLines },
   { view: "tasks", label: "Tasks", icon: KanbanSquare },
   { view: "review", label: "Review & commit", icon: GitPullRequestDraft },
   { view: "pins", label: "Pins", icon: Pin },

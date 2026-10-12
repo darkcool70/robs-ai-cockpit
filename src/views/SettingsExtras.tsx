@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { listen } from "@tauri-apps/api/event";
-import { Copy, Download, FlaskConical, Play, RefreshCw, Smartphone, Volume2 } from "lucide-react";
+import { Copy, Download, Eye, FlaskConical, KeyRound, Play, QrCode, RefreshCw, Smartphone } from "lucide-react";
+import { qrEncode, qrPath } from "../lib/qr";
+import { expiryClock, freshKey, KEY_TTL_HOURS, savedKeys, ttlHours, ttlLabel, untilLabel, type RemoteKeys } from "../lib/remoteKeys";
 import { useApp } from "../store";
 import { api, errMsg, type RemoteInfo, type UpdateInfo } from "../lib/api";
 import { budgets, type Budgets } from "../lib/workflow";
-import { speak, voices } from "../lib/tts";
 import { Badge, Button, Card, Field, Input, SectionTitle, Select, cx } from "../components/ui";
 
 type Put = (k: string, v: unknown) => Promise<void>;
@@ -100,70 +101,36 @@ function FragmentRow({ label, title, children }: { label: string; title?: string
   );
 }
 
-/** Read answers aloud. */
-export function TtsSettings({ settings, put }: { settings: Record<string, unknown>; put: Put }) {
-  const [list, setList] = useState(voices());
-  useEffect(() => {
-    const load = () => setList(voices());
-    load();
-    try {
-      window.speechSynthesis.onvoiceschanged = load;
-    } catch {
-      /* no speech synthesis */
-    }
-  }, []);
-  return (
-    <Card className="space-y-3 p-3 text-[12.5px]">
-      <SectionTitle>Read answers aloud</SectionTitle>
-      <label className="flex items-start gap-2">
-        <input type="checkbox" checked={settings.ttsEnabled === true} onChange={(e) => void put("ttsEnabled", e.target.checked)} className="mt-0.5" />
-        <span>
-          Speak a short summary when an agent is done
-          <span className="block text-[11.5px] text-faint">Windows voices, offline. Code blocks are skipped; dictating stops the reading. Every agent card also has a 🔊 button.</span>
-        </span>
-      </label>
-      <div className="grid grid-cols-3 gap-3">
-        <Field label="For">
-          <Select value={(settings.ttsWhen as string) || "voice"} onChange={(e) => void put("ttsWhen", e.target.value)}>
-            <option value="voice">the session I last talked to</option>
-            <option value="always">every agent</option>
-          </Select>
-        </Field>
-        <Field label="Voice">
-          <Select value={(settings.ttsVoice as string) || ""} onChange={(e) => void put("ttsVoice", e.target.value)}>
-            <option value="">Automatic (dictation language)</option>
-            {list.map((v) => <option key={v.name} value={v.name}>{v.name} ({v.lang})</option>)}
-          </Select>
-        </Field>
-        <Field label="Speed">
-          <Select value={String(settings.ttsRate ?? 1.05)} onChange={(e) => void put("ttsRate", Number(e.target.value))}>
-            {[0.85, 1, 1.05, 1.2, 1.4].map((r) => <option key={r} value={r}>{r}×</option>)}
-          </Select>
-        </Field>
-      </div>
-      <Button size="sm" onClick={() => speak("Claude B: Die Tests sind grün, ich habe zwei Dateien geändert.")}><Volume2 size={12} /> Test</Button>
-    </Card>
-  );
-}
-
-function randomKey(): string {
-  const chars = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789";
-  const bytes = new Uint8Array(32);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, (b) => chars[b % chars.length]).join("");
-}
-
-/** Phone remote in the home network. */
+/** Phone remote in the home network: keys that expire, a view-only link for colleagues (Pro). */
 export function RemoteSettings({ settings, put }: { settings: Record<string, unknown>; put: Put }) {
   const toast = useApp((s) => s.toast);
   const [info, setInfo] = useState<RemoteInfo | null>(null);
+  const [qr, setQr] = useState<"own" | "view" | null>(null);
+  const [now, setNow] = useState(() => Date.now());
   const port = Number(settings.remotePort ?? 8765) || 8765;
   useEffect(() => { api.remoteStatus().then(setInfo).catch(() => {}); }, []);
-  const start = async (key?: string) => {
-    const k = key ?? (typeof settings.remoteKey === "string" && settings.remoteKey.length >= 24 ? settings.remoteKey : randomKey());
+  // the expiry line stays true while Settings is open
+  useEffect(() => { const t = window.setInterval(() => setNow(Date.now()), 30_000); return () => window.clearInterval(t); }, []);
+  const saved = savedKeys(settings, now).keys;
+  const expires = info?.expires ?? saved?.expires ?? 0;
+  const expired = (!!info || !!saved) && expires <= now;
+  const viewExpired = !!info?.viewUrl && (info.viewExpires ?? 0) <= now;
+
+  /** Save the keys; while on, the running remote takes them at once (the old links stop). */
+  const saveKeys = async (k: RemoteKeys) => {
+    await put("remoteKey", k.key);
+    await put("remoteKeyExpires", k.expires);
+    await put("remoteViewKey", k.viewKey ?? "");
+    await put("remoteViewExpires", k.viewKey ? k.viewExpires : 0);
+    if (info) setInfo(await api.remoteSetKeys(k.key, k.expires, k.viewKey, k.viewKey ? k.viewExpires : undefined));
+  };
+  const start = async () => {
+    // a saved key that still works is kept (the phone's link keeps working); else a fresh one
+    const k: RemoteKeys = saved && saved.expires > Date.now() ? saved : { ...freshKey(settings), viewKey: saved?.viewKey ?? null, viewExpires: saved?.viewExpires ?? 0 };
     try {
-      if (k !== settings.remoteKey) await put("remoteKey", k);
-      setInfo(await api.remoteStart(port, k));
+      await put("remoteKey", k.key);
+      await put("remoteKeyExpires", k.expires);
+      setInfo(await api.remoteStart(port, k.key, k.expires, k.viewKey, k.viewKey ? k.viewExpires : undefined));
       await put("remoteEnabled", true);
     } catch (e) {
       toast(errMsg(e), "error");
@@ -172,29 +139,112 @@ export function RemoteSettings({ settings, put }: { settings: Record<string, unk
   const stop = async () => {
     await api.remoteStop().catch(() => {});
     setInfo(null);
+    setQr(null);
     await put("remoteEnabled", false);
   };
+  const newKey = async () => {
+    if (info && !expired && !window.confirm("Create a new key? The phone's current link stops working.")) return;
+    try {
+      await saveKeys({ ...freshKey(settings), viewKey: saved?.viewKey ?? null, viewExpires: saved?.viewExpires ?? 0 });
+      if (info) setQr("own");
+      toast(info ? "New key — scan the QR code again on your phone" : "New key saved — it is used when you turn the remote on", "ok");
+    } catch (e) {
+      toast(errMsg(e), "error");
+    }
+  };
+  const makeView = async () => {
+    if (!saved) return;
+    const v = freshKey(settings);
+    try {
+      await saveKeys({ ...saved, viewKey: v.key, viewExpires: v.expires });
+      setQr("view");
+    } catch (e) {
+      toast(errMsg(e), "error");
+    }
+  };
+  const revokeView = async () => {
+    if (!saved) return;
+    try {
+      await saveKeys({ ...saved, viewKey: null, viewExpires: 0 });
+      if (qr === "view") setQr(null);
+      toast("View-only link revoked — it stopped working", "ok");
+    } catch (e) {
+      toast(errMsg(e), "error");
+    }
+  };
+  const copy = (url: string, hint: string) => void navigator.clipboard.writeText(url).then(() => toast(hint, "ok"));
   return (
     <Card className="space-y-3 p-3 text-[12.5px]">
       <SectionTitle right={<Badge tone={info ? "ok" : "neutral"}>{info ? "on" : "off"}</Badge>}>Phone remote (home network)</SectionTitle>
       <p className="text-[11.5px] text-faint">
-        A small page for your phone: see every agent, read its last answer, reply or send “weiter”. Only reachable in your own network and only with the secret
-        key in the link. Plain HTTP — use it at home, not in public Wi-Fi. Windows may ask once whether to allow the connection.
+        A small page for your phone: see every agent, read its last answer, reply or send “weiter”{__PRO__ ? " — and the open board, live and read-only, with a line to the operator" : ""}. Only
+        answers devices in your own network and only with the secret key in the link. Plain HTTP — use it at home, not in public Wi-Fi. Windows may ask once whether to allow the connection.
+        Keys expire: after the chosen lifetime the phone shows “Link abgelaufen” and you scan a new QR code.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <Field label="Port"><Input type="number" min={1024} max={65535} defaultValue={port} className="w-24" onBlur={(e) => void put("remotePort", Math.max(1024, Math.min(65535, Number(e.target.value) || 8765)))} /></Field>
+        <Field label="Key lifetime">
+          <Select value={String(ttlHours(settings))} onChange={(e) => void put("remoteKeyTtl", Number(e.target.value))} className="w-28">
+            {KEY_TTL_HOURS.map((h) => <option key={h} value={h}>{ttlLabel(h)}</option>)}
+          </Select>
+        </Field>
         <div className="flex items-end gap-2 self-end">
           {info ? <Button onClick={() => void stop()}>Turn off</Button> : <Button variant="primary" onClick={() => void start()}><Smartphone size={12} /> Turn on</Button>}
-          {info && <Button variant="ghost" onClick={() => { if (window.confirm("Create a new key? The old link stops working.")) void start(randomKey()); }}>New key</Button>}
+          <Button variant="ghost" onClick={() => void newKey()} title="A fresh secret key with the chosen lifetime; the old link stops working"><KeyRound size={12} /> New key</Button>
         </div>
       </div>
+      {(info || saved) && (
+        <p className={cx("text-[11.5px]", expired ? "text-warn" : "text-faint")}>
+          {expired
+            ? "The key has expired — the phone shows “Link abgelaufen”. Create a new key and scan the QR code again."
+            : `Key valid until ${expiryClock(expires)} (${untilLabel(expires, now)}). A changed lifetime applies to the next key.`}
+        </p>
+      )}
       {info && (
         <div className="flex items-center gap-2 rounded border border-line bg-bg px-2 py-1.5">
           <code className="min-w-0 flex-1 truncate text-[12px]">{info.url}</code>
-          <Button size="sm" onClick={() => void navigator.clipboard.writeText(info.url).then(() => toast("Link copied — send it to your phone (e.g. to yourself by mail)", "ok"))}><Copy size={11} /> Copy link</Button>
+          <Button size="sm" onClick={() => setQr(qr === "own" ? null : "own")}><QrCode size={11} /> {qr === "own" ? "Hide QR code" : "QR code"}</Button>
+          <Button size="sm" onClick={() => copy(info.url, "Link copied — send it to your phone (e.g. to yourself by mail)")}><Copy size={11} /> Copy link</Button>
+        </div>
+      )}
+      {info && qr === "own" && <QrImage text={info.url} />}
+      {__PRO__ && info && (
+        <div className="space-y-2 border-t border-line pt-2">
+          <div className="flex items-start gap-2">
+            <span className="flex-1">
+              View-only link for colleagues
+              <span className="block text-[11.5px] text-faint">The open board with the operator's answer — no message line, no agent list. The server refuses everything else for this key; it expires like yours.</span>
+            </span>
+            {info.viewUrl && viewExpired && <Button size="sm" onClick={() => void makeView()}><Eye size={11} /> New link</Button>}
+            {info.viewUrl ? <Button size="sm" variant="ghost" onClick={() => void revokeView()}>Revoke</Button> : <Button size="sm" onClick={() => void makeView()}><Eye size={11} /> Create view-only link</Button>}
+          </div>
+          {info.viewUrl && (
+            <div className="flex items-center gap-2 rounded border border-line bg-bg px-2 py-1.5">
+              <code className="min-w-0 flex-1 truncate text-[12px]">{info.viewUrl}</code>
+              <span className={cx("shrink-0 text-[11px]", viewExpired ? "text-warn" : "text-faint")}>{untilLabel(info.viewExpires ?? 0, now)}</span>
+              <Button size="sm" onClick={() => setQr(qr === "view" ? null : "view")}><QrCode size={11} /> {qr === "view" ? "Hide QR code" : "QR code"}</Button>
+              <Button size="sm" onClick={() => copy(info.viewUrl!, "View-only link copied — it shows only the board")}><Copy size={11} /> Copy link</Button>
+            </div>
+          )}
+          {info.viewUrl && qr === "view" && <QrImage text={info.viewUrl} />}
         </div>
       )}
     </Card>
+  );
+}
+
+/** The link as a QR code: the phone's camera opens it. Shown only on request (it carries the key). */
+function QrImage({ text }: { text: string }) {
+  const path = useMemo(() => { try { const m = qrEncode(text); return { d: qrPath(m), n: m.length + 8 }; } catch { return null; } }, [text]);
+  if (!path) return <p className="text-[11.5px] text-faint">The link is too long for a QR code — copy it instead.</p>;
+  return (
+    <div className="flex items-center gap-3">
+      <svg viewBox={`0 0 ${path.n} ${path.n}`} width={176} height={176} shapeRendering="crispEdges" className="shrink-0 rounded" role="img" aria-label="QR code of the phone link">
+        <rect width={path.n} height={path.n} fill="#fff" />
+        <path d={path.d} fill="#000" />
+      </svg>
+      <p className="text-[11.5px] text-faint">Point your phone's camera at it (same Wi-Fi). Anyone who sees this code can open the page — hide it before sharing your screen, and use “New key” if it leaked.</p>
+    </div>
   );
 }
 

@@ -2,6 +2,7 @@
 // session (Claude Code and Codex pick up images and files from pasted paths).
 import { api, errMsg } from "./api";
 import { useApp } from "../store";
+import { voiceHooks } from "./hooks";
 
 /** Paths as the CLIs expect them: quoted when they contain spaces. */
 export function pathsForTerminal(paths: string[]): string {
@@ -41,6 +42,8 @@ export async function initFileDrop() {
     }
     if (p.type !== "drop") return;
     st.setDrag(null);
+    // something else wants them (files dropped on the board become cards)
+    if (voiceHooks.fileDrop?.(p.paths, x, y)) return;
     const id = pane != null ? st.panes[pane] : st.panes[st.focused];
     const s = id ? st.sessions[id] : undefined;
     if (!s?.runtime?.running) {

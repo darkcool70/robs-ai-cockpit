@@ -40,7 +40,8 @@ pub fn create(app: &AppHandle) -> AppResult<()> {
 }
 
 /// Resize to the content and pin to the bottom-right of the work area; height 0 hides it.
-pub fn layout(app: &AppHandle, height: f64) -> AppResult<()> {
+/// `width` shrinks the window (the ambient orb alone is small: no invisible strip over other programs).
+pub fn layout(app: &AppHandle, height: f64, width: Option<f64>) -> AppResult<()> {
     let w = app.get_webview_window(LABEL).ok_or_else(|| AppError::other("notification window missing"))?;
     if height <= 0.0 {
         w.hide().map_err(|e| AppError::other(e.to_string()))?;
@@ -54,7 +55,7 @@ pub fn layout(app: &AppHandle, height: f64) -> AppResult<()> {
         .ok_or_else(|| AppError::other("no monitor"))?;
     let scale = monitor.scale_factor();
     let area = monitor.work_area();
-    let pw = (WIDTH * scale).round() as i32;
+    let pw = (width.unwrap_or(WIDTH).clamp(40.0, WIDTH) * scale).round() as i32;
     let ph = (height.min(900.0) * scale).round() as i32;
     let x = area.position.x + area.size.width as i32 - pw - (MARGIN * scale) as i32;
     let y = area.position.y + area.size.height as i32 - ph - (MARGIN * scale) as i32;

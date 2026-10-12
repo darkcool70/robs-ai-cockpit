@@ -26,6 +26,8 @@ pub struct AppState {
     pub output_tx: OutputTx,
     pub lifecycle: parking_lot::Mutex<()>,
     pub stt: Arc<crate::stt::Stt>,
+    pub tts: Arc<crate::tts::Tts>,
+    pub wake: Arc<crate::wake::Wake>,
     pub remote: Arc<crate::remote::Remote>,
 }
 
@@ -151,6 +153,8 @@ pub fn detect_all(db: &Db) -> Vec<CliInfo> {
     vec![
         cli::detect(Provider::Claude, setting_str(db, "claudePath").as_deref()),
         cli::detect(Provider::Codex, setting_str(db, "codexPath").as_deref()),
+        cli::detect(Provider::Copilot, setting_str(db, "copilotPath").as_deref()),
+        cli::detect(Provider::Antigravity, setting_str(db, "antigravityPath").as_deref()),
     ]
 }
 
@@ -315,8 +319,18 @@ pub fn account_add(state: State<AppState>, input: NewAccount) -> AppResult<Accou
             return Err(AppError::invalid("The command line is too long or has line breaks"));
         }
     }
-    let mode = if provider == Provider::Custom { "managed".to_string() } else { input.mode.clone() };
+    let single = cli::SINGLE_PROFILE.contains(&provider);
+    let mode = if provider == Provider::Custom {
+        "managed".to_string()
+    } else if single {
+        // its login sits in the OS keyring: one profile, the CLI's own directory
+        "single".to_string()
+    } else {
+        input.mode.clone()
+    };
     let (dir, managed) = match mode.as_str() {
+        // the directory may not exist before the CLI's first start; it is never created or deleted here
+        "single" => (paths::default_config_dir(provider.as_str()), false),
         "managed" => {
             let base = paths::profiles_root().join(provider.as_str());
             let slug = paths::slugify(name);
@@ -370,7 +384,11 @@ pub fn account_add(state: State<AppState>, input: NewAccount) -> AppResult<Accou
         )));
     }
     if store::list_accounts(&state.db.0.lock())?.iter().any(|old| old.provider == acc.provider && cli::same_path(Path::new(&old.config_dir), &dir)) {
-        return Err(AppError::invalid("A profile for this provider already uses that config directory"));
+        return Err(AppError::invalid(if single {
+            "This CLI keeps one login per Windows user — its profile already exists"
+        } else {
+            "A profile for this provider already uses that config directory"
+        }));
     }
     store::insert_account(&state.db.0.lock(), &acc)?;
     Ok(acc)
@@ -431,6 +449,10 @@ pub fn model_catalog(state: State<AppState>, account_id: String) -> AppResult<Ve
         .into_iter()
         .map(|(id, label)| ModelInfo { id: id.into(), label: label.into(), efforts: claude_efforts.clone() })
         .collect(),
+        // Copilot Free offers only automatic model selection (GitHub changelog 2026-06-24);
+        // paid plans may type any model id. Antigravity: `agy models` lists them, nothing cached.
+        Some(Provider::Copilot) => vec![ModelInfo { id: "auto".into(), label: "Auto (the only choice on Copilot Free)".into(), efforts: vec![] }],
+        Some(Provider::Antigravity) | Some(Provider::Custom) => vec![],
         _ => {
             let own = Path::new(&acc.config_dir).join("models_cache.json");
             let fallback = paths::default_config_dir("codex").join("models_cache.json");
@@ -492,6 +514,23 @@ pub fn interpret_auth(provider: Provider, code: Option<i32>, stdout: &str, stder
                 ("error".into(), Some(first_line(stderr, stdout)))
             }
         }
+        // Copilot: `--version` proves the install; the login comes from its config (copilot_auth).
+        Provider::Copilot => {
+            if code == Some(0) {
+                ("logged-out".into(), Some("Not logged in — use \"Log in with GitHub\"".into()))
+            } else {
+                ("error".into(), Some(first_line(stderr, stdout)))
+            }
+        }
+        // Antigravity keeps its Google login in the OS keyring, which the cockpit does not read:
+        // installed counts as ready, agy itself asks for the sign-in on its first start.
+        Provider::Antigravity => {
+            if code == Some(0) {
+                ("connected".into(), Some(format!("Installed {} — Google sign-in happens inside agy", first_line(stdout, stderr)).trim().to_string()))
+            } else {
+                ("error".into(), Some(first_line(stderr, stdout)))
+            }
+        }
         // A custom tool counts as ready when it starts (`--version` succeeds); its own login
         // happens inside the tool.
         Provider::Custom => {
@@ -502,6 +541,24 @@ pub fn interpret_auth(provider: Provider, code: Option<i32>, stdout: &str, stder
             }
         }
     }
+}
+
+/// The GitHub login Copilot CLI recorded in its profile's `config.json` (`last_logged_in_user`,
+/// else the first of `logged_in_users`). Comment lines (`// …`) are skipped. The token itself is
+/// in the system credential store and never read.
+pub fn copilot_login(config: &str) -> Option<String> {
+    let text: String = config.lines().filter(|l| !l.trim_start().starts_with("//")).collect::<Vec<_>>().join("\n");
+    let v: Value = serde_json::from_str(text.trim()).ok()?;
+    let login = |u: &Value| u.get("login").and_then(|x| x.as_str()).map(str::trim).filter(|l| !l.is_empty()).map(str::to_string);
+    v.get("last_logged_in_user")
+        .and_then(login)
+        .or_else(|| v.get("logged_in_users").and_then(|x| x.as_array()).and_then(|a| a.iter().find_map(login)))
+        .map(|l| l.chars().take(100).collect())
+}
+
+/// Copilot's login state from its profile directory, once `--version` worked.
+fn copilot_auth(config_dir: &str) -> Option<String> {
+    std::fs::read_to_string(Path::new(config_dir).join("config.json")).ok().as_deref().and_then(copilot_login)
 }
 
 fn first_line(a: &str, b: &str) -> String {
@@ -520,8 +577,17 @@ pub async fn account_check_auth(state: State<'_, AppState>, id: String, force: O
     let (status, detail, identity) = match res {
         Ok(c) => {
             let (s, d) = interpret_auth(provider, c.code, &c.stdout, &c.stderr);
-            let id = if provider == Provider::Claude { claude_identity(&c.stdout) } else { None };
-            (s, d, id)
+            match provider {
+                Provider::Claude => {
+                    let id = claude_identity(&c.stdout);
+                    (s, d, id)
+                }
+                Provider::Copilot if s == "logged-out" => match copilot_auth(&acc.config_dir) {
+                    Some(login) => ("connected".into(), Some("GitHub Copilot (Free plan or subscription)".into()), Some((login, None))),
+                    None => (s, d, None),
+                },
+                _ => (s, d, None),
+            }
         }
         Err(e) => ("error".into(), Some(e.to_string()), None),
     };
@@ -696,9 +762,14 @@ fn start_inner(app: &AppHandle, state: &AppState, id: &str, cols: u16, rows: u16
 
     let hooks = provider == Provider::Claude && setting_bool(&state.db, "claudeHooks", true);
     let statusline = hooks && setting_bool(&state.db, "claudeStatusLine", true);
+    // Older Claude Code has no StopFailure hook: the monitor then reads failed turns off the screen.
+    let stop_failure = hooks && {
+        let version = state.clis.lock().iter().find(|c| c.provider == provider.as_str()).and_then(|c| c.version.clone());
+        sink::supports_stop_failure(version.as_deref())
+    };
     let settings_file = if hooks {
         let exe = std::env::current_exe()?;
-        let settings = sink::claude_session_settings(&exe, &run_dir, statusline, setting_bool(&state.db, "activityDetails", true));
+        let settings = sink::claude_session_settings(&exe, &run_dir, statusline, setting_bool(&state.db, "activityDetails", true), stop_failure);
         let f = run_dir.join("settings.json");
         std::fs::write(&f, serde_json::to_vec_pretty(&settings)?)?;
         // Fresh event log for this run.
@@ -716,7 +787,10 @@ fn start_inner(app: &AppHandle, state: &AppState, id: &str, cols: u16, rows: u16
         (Provider::Claude, psid) => SessionMode::New { session_id: psid.clone() },
         (Provider::Codex, Some(psid)) => SessionMode::Resume { session_id: psid.clone() },
         (Provider::Codex, None) => SessionMode::New { session_id: None },
-        (Provider::Custom, _) => SessionMode::New { session_id: None },
+        // Copilot: the id is its session-state folder name (monitor.rs finds it after the start)
+        (Provider::Copilot, Some(psid)) => SessionMode::Resume { session_id: psid.clone() },
+        (Provider::Copilot, None) => SessionMode::New { session_id: None },
+        (Provider::Antigravity | Provider::Custom, _) => SessionMode::New { session_id: None },
     };
     let extra_args: Vec<String> = lead_args.into_iter().chain(s.extra_args.iter().cloned()).collect();
     let resumed_psid = match &mode {
@@ -745,9 +819,10 @@ fn start_inner(app: &AppHandle, state: &AppState, id: &str, cols: u16, rows: u16
         &s.cwd,
         run_dir,
         hooks,
-        if provider == Provider::Codex { resumed_psid } else { s.provider_session_id.clone() },
+        if matches!(provider, Provider::Codex | Provider::Copilot) { resumed_psid } else { s.provider_session_id.clone() },
         s.model.clone(),
     );
+    rt.stop_failure = stop_failure;
     rt.view.provider_session_id = s.provider_session_id.clone();
     rt.view.auto_continue = s.auto_continue;
     if let Ok(Some(a)) = crate::automation::running_for(&state.db.0.lock(), id) {
@@ -933,6 +1008,8 @@ fn copy_conversation(provider: Provider, psid: &str, from: &Path, to: &Path) -> 
                 }
             }
         }
+        // Copilot Free: one account per person; Antigravity has a single profile anyway.
+        Provider::Copilot | Provider::Antigravity => return Err(AppError::invalid("This CLI cannot move a conversation to another profile — start a new session there")),
         Provider::Custom => return Err(AppError::invalid("Custom CLIs cannot move a conversation to another profile")),
     }
     if copied == 0 {
@@ -1058,7 +1135,7 @@ pub fn session_close(state: State<AppState>, id: String) -> AppResult<()> {
             rusqlite::params![id, now_iso()],
         )?;
         store::set_closed(&conn, &id, true)?;
-        if matches!(s.status.as_str(), "starting" | "working" | "waiting-for-input" | "idle" | "rate-limited") {
+        if matches!(s.status.as_str(), "starting" | "working" | "waiting-for-input" | "idle" | "rate-limited" | "error") {
             store::mark_ended(&conn, &id, s.exit_code, "stopped")?;
         }
     }
@@ -1426,8 +1503,8 @@ pub fn push_send(url: String, title: String, message: String, priority: Option<S
 pub fn save_text_file(path: String, content: String) -> AppResult<()> {
     let p = PathBuf::from(&path);
     let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
-    if !["md", "txt", "csv", "json"].contains(&ext.as_str()) {
-        return Err(AppError::invalid("Only .md, .txt, .csv or .json files"));
+    if !["md", "txt", "csv", "json", "html"].contains(&ext.as_str()) {
+        return Err(AppError::invalid("Only .md, .txt, .csv, .json or .html files"));
     }
     std::fs::write(&p, content)?;
     Ok(())
@@ -1492,11 +1569,26 @@ pub fn report_save(name: String, content: String) -> AppResult<String> {
     Ok(p.to_string_lossy().into_owned())
 }
 
+/// The view-only key as the remote takes it (empty / missing: none).
+fn view_key(view_key: Option<String>, view_expires: Option<u64>) -> Option<(String, u64)> {
+    view_key.filter(|k| !k.is_empty()).map(|k| (k, view_expires.unwrap_or(0)))
+}
+
+/// `expires` (ms): until when the key opens the page (missing / 0: 24 h from now, at most 7 days).
+/// The keys themselves are never written to the audit log.
 #[tauri::command(async)]
-pub fn remote_start(state: State<AppState>, port: u16, key: String) -> AppResult<crate::remote::RemoteInfo> {
+pub fn remote_start(state: State<AppState>, port: u16, key: String, expires: Option<u64>, view_key: Option<String>, view_expires: Option<u64>) -> AppResult<crate::remote::RemoteInfo> {
     let port = if port < 1024 { 8765 } else { port };
-    let info = state.remote.start(state.db.clone(), state.runtimes.clone(), port, key)?;
-    let _ = store::audit(&state.db.0.lock(), "user", "remote_start", &json!({ "port": port }));
+    let info = state.remote.start(state.db.clone(), state.runtimes.clone(), port, key, expires.unwrap_or(0), self::view_key(view_key, view_expires))?;
+    let _ = store::audit(&state.db.0.lock(), "user", "remote_start", &json!({ "port": port, "viewOnly": info.view_url.is_some() }));
+    Ok(info)
+}
+
+/// New keys while the remote is on ("New key", a view-only link made or revoked); no restart.
+#[tauri::command(async)]
+pub fn remote_set_keys(state: State<AppState>, key: String, expires: Option<u64>, view_key: Option<String>, view_expires: Option<u64>) -> AppResult<crate::remote::RemoteInfo> {
+    let info = state.remote.set_keys(key, expires.unwrap_or(0), self::view_key(view_key, view_expires))?;
+    let _ = store::audit(&state.db.0.lock(), "user", "remote_keys", &json!({ "viewOnly": info.view_url.is_some() }));
     Ok(info)
 }
 
@@ -1508,6 +1600,20 @@ pub fn remote_stop(state: State<AppState>) {
 #[tauri::command(async)]
 pub fn remote_status(state: State<AppState>) -> Option<crate::remote::RemoteInfo> {
     state.remote.info.lock().clone()
+}
+
+/// The open board as a read-only page for the phone remote (ignored while the remote is off).
+/// Returns whether it was taken.
+#[tauri::command(async)]
+pub fn remote_share_board(state: State<AppState>, html: String, title: String, operator: Option<String>, answer: Option<String>) -> AppResult<bool> {
+    state.remote.share_board(crate::remote::SharedBoard { html, title, ts: 0, operator, answer })
+}
+
+/// "Seit du weg bist" for the top of the phone page (Pro); no lines: you are back, it goes.
+/// Ignored while the remote is off; returns whether it was taken.
+#[tauri::command(async)]
+pub fn remote_share_digest(state: State<AppState>, since: u64, lines: Vec<crate::remote::AwayLine>) -> bool {
+    state.remote.share_digest(since, lines)
 }
 
 #[tauri::command(async)]
@@ -1570,7 +1676,7 @@ pub fn quota_history(state: State<AppState>, hours: Option<i64>) -> AppResult<Va
 // ---------------------------------------------------------------------------
 
 const SETTING_KEYS: &[&str] = &[
-    "claudePath", "codexPath", "claudeHooks", "claudeStatusLine", "terminalFontSize",
+    "claudePath", "codexPath", "copilotPath", "antigravityPath", "claudeHooks", "claudeStatusLine", "terminalFontSize",
     "terminalFontFamily", "indexIntervalSec", "defaultLayout", "orchestration",
     "autoContinueDefault", "autoContinueMessage", "autoContinueRetryMin", "autoFailover",
     "notifyOnWaiting", "defaultAutonomy", "defaultProjectId",
@@ -1578,9 +1684,25 @@ const SETTING_KEYS: &[&str] = &[
     "voiceVocabulary", "voiceDevice", "activityDetails", "editorCommand", "notifyPopup", "notifySound",
     "notifyWhen", "voiceSounds", "notifyTimeoutSec", "maxPanes", "whenFull", "voicePaneModifier",
     "voicePickWhileRecording", "voiceTargetDefault", "contextWarnPercent", "conflictWarn", "pushUrl",
-    "pushAfterMin", "pushOnLimit", "pushOnFailed", "rolePresets", "voiceCommands", "autoDispatch",
+    "pushAfterMin", "pushOnLimit", "pushOnFailed", "pushAway", "rolePresets", "voiceCommands", "autoDispatch",
     "dispatchAgents", "nightShift", "testCommands", "autoTests", "hangMinutes", "budgets", "ttsEnabled", "ttsWhen",
     "ttsVoice", "ttsRate", "remotePort", "remoteKey", "remoteEnabled", "customClis", "theme", "paneFonts", "tourSeen",
+    // phone remote keys: lifetime (hours), when the key expires, the view-only key for colleagues
+    "remoteKeyTtl", "remoteKeyExpires", "remoteViewKey", "remoteViewExpires",
+    // account health: last model / login failure per account, the cockpit's model per account
+    "accountHealth", "accountModels",
+    // voice control (Voice tab)
+    "ttsEngine", "ttsVoiceEngine", "ttsQuality", "ttsNeuralVoice", "ttsFx", "ttsPitch", "ttsStyle", "ttsAutoLanguage", "ttsGermanVoice", "ttsGermanPitch", "reminders", "boardSounds", "voiceCallouts", "voiceCalloutFx", "voiceCalloutVoice", "voiceSoundStyle",
+    "voiceSendDelayMs", "voiceStandbyMs", "voiceShortAnswers", "voiceAnnounce", "voiceMainTarget", "voiceOperatorTalk",
+    "voiceAck", "voiceFillers", "voiceBargeIn", "voiceWelcome", "voiceWelcomeMin", "voiceWakeWord", "voiceWakeWords", "voiceTalkSilenceMs", "voicePolite", "voiceBackchannel", "voiceBreakpointMs",
+    // when the cockpit speaks up: "asked" (default) / "important" / "all" (speakPolicy.ts)
+    "voiceSpeakWhen",
+    // mute every spoken output / keep spoken answers short (speechControl.ts, mute.ts)
+    "voiceMuted", "voiceBrief",
+    // assistants, operator and board (Pro)
+    "assistantVoices", "operatorConfirm", "operatorReview", "operatorSpeaks", "boardAutoShare", "operatorMemory", "ambientOrb",
+    // Atlas starts on the fast model when it has no model of its own ("Schnell starten")
+    "atlasFastStart",
 ];
 
 #[tauri::command(async)]
@@ -1627,7 +1749,12 @@ pub fn security_overview(state: State<AppState>) -> AppResult<Value> {
     let reads: Vec<Value> = accounts
         .iter()
         .map(|a| {
-            let sub = if a.provider == "claude" { vec!["projects/**/*.jsonl"] } else { vec!["sessions/**/rollout-*.jsonl", "archived_sessions/**/rollout-*.jsonl"] };
+            let sub = match a.provider.as_str() {
+                "claude" => vec!["projects/**/*.jsonl"],
+                "codex" => vec!["sessions/**/rollout-*.jsonl", "archived_sessions/**/rollout-*.jsonl"],
+                "copilot" => vec!["session-state/*/events.jsonl", "config.json (login name only)"],
+                _ => vec![],
+            };
             json!({ "account": a.name, "provider": a.provider, "configDir": a.config_dir, "managed": a.managed, "reads": sub })
         })
         .collect();
@@ -1717,8 +1844,8 @@ pub fn delete_app_data(state: State<AppState>, confirm: String, include_profiles
 }
 
 #[tauri::command(async)]
-pub fn hud_layout(app: AppHandle, height: f64) -> AppResult<()> {
-    crate::hud::layout(&app, height)
+pub fn hud_layout(app: AppHandle, height: f64, width: Option<f64>) -> AppResult<()> {
+    crate::hud::layout(&app, height, width)
 }
 
 #[tauri::command(async)]
@@ -1966,6 +2093,13 @@ pub fn automation_delete(app: AppHandle, state: State<AppState>, id: String) -> 
     Ok(())
 }
 
+/// Open a web card's page in the browser (public http(s) addresses only, after a click).
+#[tauri::command(async)]
+pub fn open_web_link(app: AppHandle, url: String) -> AppResult<()> {
+    let url = crate::web::check_url(&url).map_err(AppError::invalid)?;
+    app.opener().open_url(url, None::<&str>).map_err(|e| AppError::other(e.to_string()))
+}
+
 /// Open one of the project's own pages in the browser (fixed list, never an arbitrary URL).
 #[tauri::command(async)]
 pub fn open_project_page(app: AppHandle, page: String) -> AppResult<()> {
@@ -2055,10 +2189,339 @@ pub async fn stt_stop(app: AppHandle, state: State<'_, AppState>) -> AppResult<V
     Ok(json!({ "target": target, "text": t.text, "send": t.send }))
 }
 
+/// Wake word on: listen for one of `words` (the operator's name) and emit "wake" with the command.
+#[tauri::command(async)]
+pub fn wake_start(app: AppHandle, state: State<AppState>, words: Vec<String>) -> AppResult<()> {
+    let mut cfg = stt_config(&state.db);
+    // the names bias Whisper's spelling
+    cfg.vocabulary = format!("{}, {}", words.join(", "), cfg.vocabulary);
+    if !crate::stt::model(&cfg.model).is_some_and(|_| state.stt.status_installed(&cfg.model)) {
+        return Err(AppError::invalid("Speech recognition is not installed yet (Voice tab)"));
+    }
+    state.wake.start(app, state.stt.clone(), crate::wake::WakeConfig { words, stt: cfg }).map_err(AppError::invalid)
+}
+
+/// Would `text` wake it? Returns the command after the wake phrase (Voice tab test).
+#[tauri::command(async)]
+pub fn wake_check(text: String, words: Vec<String>) -> Option<String> {
+    crate::wake::wake_match(&text, &words)
+}
+
+#[tauri::command(async)]
+pub fn wake_stop(state: State<AppState>) {
+    state.wake.stop();
+}
+
+/// While the cockpit records or speaks, the wake word listener ignores the microphone.
+#[tauri::command(async)]
+pub fn wake_busy(state: State<AppState>, busy: bool) {
+    state.wake.set_busy(busy);
+}
+
+#[tauri::command(async)]
+pub fn wake_running(state: State<AppState>) -> bool {
+    state.wake.running()
+}
+
+/// Title, description, picture and first paragraphs of a web page (board: web cards).
+#[tauri::command]
+pub async fn link_preview(url: String) -> AppResult<crate::web::Preview> {
+    tauri::async_runtime::spawn_blocking(move || crate::web::preview(&url)).await.map_err(|e| AppError::other(e.to_string()))?.map_err(AppError::invalid)
+}
+
+/// Search the web for the board (DuckDuckGo).
+#[tauri::command]
+pub async fn web_search(query: String) -> AppResult<Vec<crate::web::SearchHit>> {
+    tauri::async_runtime::spawn_blocking(move || crate::web::search(&query)).await.map_err(|e| AppError::other(e.to_string()))?.map_err(AppError::invalid)
+}
+
+/// Run the project's tests (all the ways it tests itself), at most 10 minutes each.
+#[tauri::command]
+pub async fn project_tests(state: State<'_, AppState>, project_id: String) -> AppResult<Vec<crate::testrun::TestRun>> {
+    let project = store::get_project(&state.db.0.lock(), &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let root = std::path::PathBuf::from(&project.path);
+        let found = crate::testrun::detect(&root);
+        if found.is_empty() {
+            return Err(AppError::invalid("No tests found in this project (package.json \"test\", Cargo.toml, pytest or go.mod)"));
+        }
+        found.iter().map(|(cmd, dir)| crate::testrun::run(cmd, dir, std::time::Duration::from_secs(600)).map_err(AppError::invalid)).collect()
+    })
+    .await
+    .map_err(|e| AppError::other(e.to_string()))?
+}
+
+/// Build the project (all the ways it builds itself), at most 15 minutes each.
+#[tauri::command]
+pub async fn project_build(state: State<'_, AppState>, project_id: String) -> AppResult<Vec<crate::testrun::TestRun>> {
+    let project = store::get_project(&state.db.0.lock(), &project_id)?;
+    tauri::async_runtime::spawn_blocking(move || {
+        let found = crate::testrun::detect_build(std::path::Path::new(&project.path));
+        if found.is_empty() {
+            return Err(AppError::invalid("No build found in this project (package.json \"build\", Cargo.toml or go.mod)"));
+        }
+        found.iter().map(|(cmd, dir)| crate::testrun::run(cmd, dir, std::time::Duration::from_secs(900)).map_err(AppError::invalid)).collect()
+    })
+    .await
+    .map_err(|e| AppError::other(e.to_string()))?
+}
+
+/// A PDF's bytes for the board (it renders the pages itself).
+#[tauri::command]
+pub async fn pdf_bytes(path: String) -> AppResult<tauri::ipc::Response> {
+    let bytes = tauri::async_runtime::spawn_blocking(move || crate::slidesrender::pdf_bytes(std::path::Path::new(&path))).await.map_err(|e| AppError::other(e.to_string()))?.map_err(AppError::invalid)?;
+    Ok(tauri::ipc::Response::new(bytes))
+}
+
+/// PowerPoint slides as pictures (exported by PowerPoint, cached per file version).
+#[tauri::command]
+pub async fn pptx_slides(path: String) -> AppResult<Vec<String>> {
+    tauri::async_runtime::spawn_blocking(move || crate::slidesrender::pptx_slides(std::path::Path::new(&path))).await.map_err(|e| AppError::other(e.to_string()))?.map_err(AppError::invalid)
+}
+
+/// What a file on disk shows on the board: a picture, its text, a PowerPoint's thumbnail and slide titles …
+#[tauri::command]
+pub async fn file_preview(path: String) -> AppResult<crate::filepreview::FilePreview> {
+    tauri::async_runtime::spawn_blocking(move || crate::filepreview::preview(std::path::Path::new(&path))).await.map_err(|e| AppError::other(e.to_string()))?.map_err(AppError::invalid)
+}
+
+/// A picture from the web as `data:` URL (board: picture cards).
+#[tauri::command]
+pub async fn media_fetch(url: String) -> AppResult<String> {
+    tauri::async_runtime::spawn_blocking(move || crate::web::media(&url)).await.map_err(|e| AppError::other(e.to_string()))?.map_err(AppError::invalid)
+}
+
+/// Milliseconds since the last keyboard or mouse input anywhere on this computer (any program):
+/// spoken reports wait for a pause in your work instead of cutting into it.
+#[tauri::command(async)]
+pub fn user_idle_ms() -> u64 {
+    #[cfg(windows)]
+    {
+        use windows_sys::Win32::System::SystemInformation::GetTickCount;
+        use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetLastInputInfo, LASTINPUTINFO};
+        let mut info = LASTINPUTINFO { cbSize: std::mem::size_of::<LASTINPUTINFO>() as u32, dwTime: 0 };
+        // SAFETY: plain Win32 calls with a correctly sized struct.
+        let ok = unsafe { GetLastInputInfo(&mut info) } != 0;
+        if ok {
+            return unsafe { GetTickCount() }.wrapping_sub(info.dwTime) as u64;
+        }
+    }
+    u64::MAX
+}
+
+/// Barge-in: the running recording keeps only its last `ms` milliseconds.
+#[tauri::command(async)]
+pub fn stt_keep_recent(state: State<AppState>, ms: u32) {
+    state.stt.keep_recent(ms);
+}
+
 #[tauri::command(async)]
 pub fn stt_cancel(app: AppHandle, state: State<AppState>) {
     state.stt.cancel();
     let _ = app.emit("stt-state", json!({ "state": "idle" }));
+}
+
+// ---------------------------------------------------------------------------
+// Boards (shared whiteboard per project)
+// ---------------------------------------------------------------------------
+
+const MAX_BOARD_BYTES: usize = 4 * 1024 * 1024;
+
+fn board_scope_ok(scope: &str) -> bool {
+    !scope.is_empty() && scope.len() <= 120 && scope.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, ':' | '-' | '_'))
+}
+
+/// The board's JSON, or null when there is none yet.
+#[tauri::command(async)]
+pub fn board_get(state: State<AppState>, scope: String) -> AppResult<Option<String>> {
+    if !board_scope_ok(&scope) {
+        return Err(AppError::invalid("Invalid board"));
+    }
+    let c = state.db.0.lock();
+    Ok(rusqlite::OptionalExtension::optional(c.query_row("SELECT data FROM boards WHERE scope=?1", [&scope], |r| r.get(0)))?)
+}
+
+#[tauri::command(async)]
+pub fn board_save(state: State<AppState>, scope: String, data: String) -> AppResult<()> {
+    if !board_scope_ok(&scope) {
+        return Err(AppError::invalid("Invalid board"));
+    }
+    if data.len() > MAX_BOARD_BYTES {
+        return Err(AppError::invalid("The board is too big (max 4 MB)"));
+    }
+    serde_json::from_str::<Value>(&data).map_err(|_| AppError::invalid("Board data is not JSON"))?;
+    state.db.0.lock().execute(
+        "INSERT INTO boards(scope, data, updated_at) VALUES(?1, ?2, ?3)
+         ON CONFLICT(scope) DO UPDATE SET data=excluded.data, updated_at=excluded.updated_at",
+        rusqlite::params![scope, data, crate::db::now_iso()],
+    )?;
+    Ok(())
+}
+
+/// Boards whose scope starts with `prefix` (e.g. "project:<id>"), newest first.
+#[tauri::command(async)]
+pub fn board_list(state: State<AppState>, prefix: String) -> AppResult<Vec<Value>> {
+    if !board_scope_ok(&prefix) {
+        return Err(AppError::invalid("Invalid board"));
+    }
+    let c = state.db.0.lock();
+    let mut st = c.prepare("SELECT scope, updated_at, json_extract(data, '$.title') FROM boards WHERE scope = ?1 OR scope LIKE ?1 || ':%' ORDER BY updated_at DESC")?;
+    let rows = st
+        .query_map([&prefix], |r| Ok(json!({ "scope": r.get::<_, String>(0)?, "updatedAt": r.get::<_, String>(1)?, "title": r.get::<_, Option<String>>(2)? })))?
+        .collect::<Result<Vec<_>, _>>()?;
+    Ok(rows)
+}
+
+#[tauri::command(async)]
+pub fn board_delete(state: State<AppState>, scope: String) -> AppResult<()> {
+    if !board_scope_ok(&scope) {
+        return Err(AppError::invalid("Invalid board"));
+    }
+    state.db.0.lock().execute("DELETE FROM boards WHERE scope=?1", [&scope])?;
+    Ok(())
+}
+
+/// Write the board as Markdown into the project (`.cockpit/BOARD.md`), so agents can read the plan.
+/// Returns the file's path.
+#[tauri::command(async)]
+pub fn board_export(state: State<AppState>, project_id: String, markdown: String) -> AppResult<String> {
+    if markdown.len() > MAX_BOARD_BYTES {
+        return Err(AppError::invalid("The board is too big to share"));
+    }
+    let project = store::get_project(&state.db.0.lock(), &project_id)?;
+    let dir = Path::new(&project.path).join(".cockpit");
+    std::fs::create_dir_all(&dir)?;
+    let file = dir.join("BOARD.md");
+    std::fs::write(&file, markdown)?;
+    Ok(file.to_string_lossy().into_owned())
+}
+
+/// Write a picture of the board into the project (`.cockpit/board.png`), so the operator can look
+/// at it with its Read tool. `png` is base64. Returns the file's path.
+#[tauri::command(async)]
+pub fn board_image(state: State<AppState>, project_id: String, png: String) -> AppResult<String> {
+    use base64::Engine;
+    if png.len() > 12 * 1024 * 1024 {
+        return Err(AppError::invalid("The board picture is too big"));
+    }
+    let bytes = base64::engine::general_purpose::STANDARD.decode(png.trim()).map_err(|_| AppError::invalid("Not a picture"))?;
+    if !bytes.starts_with(&[0x89, b'P', b'N', b'G', 0x0d, 0x0a, 0x1a, 0x0a]) {
+        return Err(AppError::invalid("Not a PNG picture"));
+    }
+    let project = store::get_project(&state.db.0.lock(), &project_id)?;
+    let dir = Path::new(&project.path).join(".cockpit");
+    std::fs::create_dir_all(&dir)?;
+    let file = dir.join("board.png");
+    std::fs::write(&file, bytes)?;
+    Ok(file.to_string_lossy().into_owned())
+}
+
+/// A file name from a board title: letters, digits, space, dash and underscore only.
+fn safe_file_name(title: &str) -> String {
+    let s: String = title.chars().map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { ' ' }).collect();
+    let s = s.split_whitespace().collect::<Vec<_>>().join(" ");
+    let s: String = s.chars().take(60).collect();
+    if s.is_empty() { "Board".into() } else { s }
+}
+
+/// Save the board's slides as a PDF in the project (`.cockpit/<title>.pdf`) and open it.
+/// `pdf` is base64. Returns the file's path.
+#[tauri::command(async)]
+pub fn board_pdf(app: AppHandle, state: State<AppState>, project_id: String, title: String, pdf: String, open: bool) -> AppResult<String> {
+    use base64::Engine;
+    use tauri_plugin_opener::OpenerExt;
+    if pdf.len() > 60 * 1024 * 1024 {
+        return Err(AppError::invalid("The slides are too big"));
+    }
+    let bytes = base64::engine::general_purpose::STANDARD.decode(pdf.trim()).map_err(|_| AppError::invalid("Not a PDF"))?;
+    if !bytes.starts_with(b"%PDF-") {
+        return Err(AppError::invalid("Not a PDF"));
+    }
+    let project = store::get_project(&state.db.0.lock(), &project_id)?;
+    let dir = Path::new(&project.path).join(".cockpit");
+    std::fs::create_dir_all(&dir)?;
+    let file = dir.join(format!("{}.pdf", safe_file_name(&title)));
+    std::fs::write(&file, bytes)?;
+    if open {
+        app.opener().open_path(file.to_string_lossy(), None::<&str>).map_err(|e| AppError::other(e.to_string()))?;
+    }
+    Ok(file.to_string_lossy().into_owned())
+}
+
+#[cfg(test)]
+mod board_file_tests {
+    #[test]
+    fn board_titles_become_safe_file_names() {
+        assert_eq!(super::safe_file_name("WebAssembly – so funktioniert's"), "WebAssembly so funktioniert s");
+        assert_eq!(super::safe_file_name("../../evil"), "evil");
+        assert_eq!(super::safe_file_name("???"), "Board");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Voice output (local neural text to speech)
+// ---------------------------------------------------------------------------
+
+#[tauri::command(async)]
+pub fn tts_status(state: State<AppState>) -> crate::tts::Status {
+    state.tts.status()
+}
+
+#[tauri::command]
+pub async fn tts_install(app: AppHandle, state: State<'_, AppState>, voice: String) -> AppResult<()> {
+    let tts = state.tts.clone();
+    tauri::async_runtime::spawn_blocking(move || tts.install(&app, &voice)).await.map_err(|e| AppError::other(e.to_string()))?
+}
+
+/// Load a voice in the background so the first spoken answer is quick.
+#[tauri::command]
+pub async fn tts_warmup(state: State<'_, AppState>, voice: String, speed: Option<f64>) -> AppResult<()> {
+    let tts = state.tts.clone();
+    tauri::async_runtime::spawn_blocking(move || tts.warmup(&voice, speed.unwrap_or(1.0)))
+        .await
+        .map_err(|e| AppError::other(e.to_string()))?
+        .map_err(AppError::invalid)
+}
+
+/// Text → WAV bytes (raw binary response, an ArrayBuffer in the UI).
+#[tauri::command]
+pub async fn tts_speak(state: State<'_, AppState>, text: String, voice: String, speed: Option<f64>, style: Option<String>, lang: Option<String>) -> AppResult<tauri::ipc::Response> {
+    let tts = state.tts.clone();
+    // „Klang“ (Supertonic): fast / balanced / best
+    let quality = store::get_setting(&state.db.0.lock(), "ttsQuality").ok().flatten().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
+    tts.set_st_steps(crate::tts::steps_for(&quality));
+    let wav = tauri::async_runtime::spawn_blocking(move || tts.synthesize(&voice, &text, speed.unwrap_or(1.0), style.as_deref(), lang.as_deref()))
+        .await
+        .map_err(|e| AppError::other(e.to_string()))?
+        .map_err(AppError::invalid)?;
+    Ok(tauri::ipc::Response::new(wav))
+}
+
+/// Store the Azure Speech key (checked with a one-word request first, then DPAPI-encrypted), or
+/// remove it with `key: null`. The key never comes back to the UI and is never logged.
+#[tauri::command]
+pub async fn tts_cloud_key(state: State<'_, AppState>, provider: String, region: Option<String>, key: Option<String>) -> AppResult<()> {
+    if provider != "azure" {
+        return Err(AppError::invalid("Unknown voice provider"));
+    }
+    let res = match key {
+        None => {
+            crate::tts_cloud::clear_key();
+            Ok(())
+        }
+        Some(k) => tauri::async_runtime::spawn_blocking(move || crate::tts_cloud::set_key(&region.unwrap_or_default(), &k))
+            .await
+            .map_err(|e| AppError::other(e.to_string()))?
+            .map_err(AppError::invalid),
+    };
+    let _ = store::audit(&state.db.0.lock(), "user", "tts_cloud_key", &json!({ "provider": provider, "stored": res.is_ok() && crate::tts_cloud::key_set() }));
+    res
+}
+
+/// Free an engine's memory (the Supertonic model) after another engine was chosen.
+#[tauri::command(async)]
+pub fn tts_release(state: State<AppState>, engine: String) {
+    state.tts.release(&engine);
 }
 
 /// Normalise a shortcut like "ctrl + alt + digit1" to "Control+Alt+Digit1".
@@ -2223,6 +2686,22 @@ mod tests {
         assert_eq!(interpret_auth(Provider::Codex, Some(0), "Logged in using ChatGPT", "").0, "connected");
         assert_eq!(interpret_auth(Provider::Codex, Some(1), "Not logged in", "WARNING: x").0, "logged-out");
         assert_eq!(interpret_auth(Provider::Codex, Some(0), "Logged in using an API key - sk-***", "").0, "connected-api");
+        // free-tier CLIs: `--version` works → installed; Copilot's login comes from its config
+        assert_eq!(interpret_auth(Provider::Copilot, Some(0), "1.2.3", "").0, "logged-out");
+        assert_eq!(interpret_auth(Provider::Copilot, Some(1), "", "boom").0, "error");
+        let (s, d) = interpret_auth(Provider::Antigravity, Some(0), "agy 2.2.1", "");
+        assert_eq!(s, "connected");
+        assert!(d.unwrap().contains("agy 2.2.1"));
+    }
+
+    #[test]
+    fn copilot_login_from_its_config() {
+        let cfg = "// managed by Copilot CLI\n{\"banner\":\"never\",\"last_logged_in_user\":{\"host\":\"https://github.com\",\"login\":\"robb\"},\"logged_in_users\":[{\"host\":\"https://github.com\",\"login\":\"robb\"}]}";
+        assert_eq!(copilot_login(cfg).as_deref(), Some("robb"));
+        assert_eq!(copilot_login(r#"{"logged_in_users":[{"host":"https://github.com","login":"other"}]}"#).as_deref(), Some("other"));
+        assert_eq!(copilot_login(r#"{"logged_in_users":[]}"#), None);
+        assert_eq!(copilot_login(r#"{"last_logged_in_user":{"login":"  "}}"#), None);
+        assert_eq!(copilot_login("not json"), None);
     }
 
     #[test]
@@ -2235,4 +2714,87 @@ mod tests {
         assert_eq!(claude_identity(r#"{"loggedIn":true,"email":""}"#), None);
         assert_eq!(claude_identity("not json"), None);
     }
+}
+
+/// The code of a folder for the board: every source file with its imports (the board draws the architecture).
+#[tauri::command]
+pub async fn code_scan(path: String) -> AppResult<crate::codemap::CodeScan> {
+    tauri::async_runtime::spawn_blocking(move || crate::codemap::scan(std::path::Path::new(&path))).await.map_err(|e| AppError::other(e.to_string()))?.map_err(AppError::invalid)
+}
+
+/// When these files / folders last changed (watch cards on the board poll this).
+#[tauri::command]
+pub async fn file_stamps(paths: Vec<String>) -> AppResult<Vec<crate::codemap::Stamp>> {
+    tauri::async_runtime::spawn_blocking(move || paths.iter().take(40).map(|p| crate::codemap::stamp(std::path::Path::new(p))).collect()).await.map_err(|e| AppError::other(e.to_string()))
+}
+
+/// Public facts about a domain or an IP address for the board (DNS, registration, certificates, archive, network, location).
+#[tauri::command]
+pub async fn osint_lookup(target: String) -> AppResult<crate::osint::Osint> {
+    tauri::async_runtime::spawn_blocking(move || crate::osint::lookup(&target)).await.map_err(|e| AppError::other(e.to_string()))?.map_err(AppError::invalid)
+}
+
+/// A web page in a browser window of its own inside the cockpit (Google Maps, a console, pages that refuse to be framed).
+#[tauri::command]
+pub async fn browser_open(app: tauri::AppHandle, url: String, title: Option<String>) -> AppResult<String> {
+    crate::browser::open(&app, &url, title)
+}
+
+/// A picture of a browser window (the newest one by default) for the board: { src, title }.
+#[tauri::command]
+pub async fn browser_snapshot(app: tauri::AppHandle, label: Option<String>, max_width: Option<u32>) -> AppResult<serde_json::Value> {
+    let max_w = max_width.unwrap_or(1100).clamp(200, 1600);
+    let (src, title) = tauri::async_runtime::spawn_blocking(move || crate::browser::snapshot(&app, label, max_w)).await.map_err(|e| AppError::other(e.to_string()))??;
+    Ok(serde_json::json!({ "src": src, "title": title }))
+}
+
+/// Act in a browser window (read / click / type / scroll / back / go); the page's answer. After an action that changes the page, the page is read again.
+#[tauri::command]
+pub async fn browser_act(app: tauri::AppHandle, label: Option<String>, action: serde_json::Value) -> AppResult<serde_json::Value> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let r = crate::browser_ctl::act(&app, label.clone(), &action).map_err(AppError::invalid)?;
+        // questions to the page come back at once; actions wait for the page to react
+        if ["read", "info", "quote", "paragraphs", "mark"].iter().any(|k| action["do"] == *k) || r.get("error").is_some() {
+            return Ok(r);
+        }
+        // let the page react, then see what it shows now
+        // the page shows what happens first (about a second), then reacts
+        std::thread::sleep(std::time::Duration::from_millis(if action["do"] == "search" { 3600 } else { 2400 }));
+        let page = crate::browser_ctl::act(&app, label, &serde_json::json!({ "do": "read" })).unwrap_or(serde_json::Value::Null);
+        Ok(serde_json::json!({ "done": r, "page": page }))
+    })
+    .await
+    .map_err(|e| AppError::other(e.to_string()))?
+}
+
+/// A page on the board (a docked browser view): create, move, resize, show or hide it.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn browser_dock(app: tauri::AppHandle, label: String, url: Option<String>, x: f64, y: f64, w: f64, h: f64, visible: bool) -> AppResult<()> {
+    crate::browser::dock(&app, &label, url.as_deref(), x, y, w, h, visible)
+}
+
+/// Close a page on the board.
+#[tauri::command]
+pub async fn browser_undock(app: tauri::AppHandle, label: String) -> AppResult<()> {
+    crate::browser::undock(&app, &label)
+}
+
+/// The address a page on the board shows now (it may have been navigated).
+#[tauri::command]
+pub async fn browser_url(app: tauri::AppHandle, label: String) -> AppResult<Option<String>> {
+    Ok(crate::browser::docked_page(&app, &label))
+}
+
+/// Save a page on the board as a PDF (in the cockpit's "pages" folder); its path.
+#[tauri::command]
+pub async fn browser_pdf(app: tauri::AppHandle, label: String, name: String) -> AppResult<String> {
+    let slug = crate::paths::slugify(&name);
+    let stamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let path = crate::paths::root().join("pages").join(format!("{}-{stamp}.pdf", if slug.is_empty() { "page".to_string() } else { slug }));
+    tauri::async_runtime::spawn_blocking(move || crate::browser_ctl::print_pdf(&app, &label, &path))
+        .await
+        .map_err(|e| AppError::other(e.to_string()))?
+        .map(|p| p.to_string_lossy().to_string())
+        .map_err(AppError::invalid)
 }
