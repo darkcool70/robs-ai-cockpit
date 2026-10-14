@@ -6,6 +6,23 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-10-14
+
+A tidier Atlas room: sections you can rename and move, a compact header that gives the board
+the height, and the board fully in English in English mode.
+
+### Added
+- **Rename and move sections on the board (Pro):** double-click a section heading to give it your own name („Erkenntnisse“ → „Was wir wissen“), the ‹ › arrows next to it move it one step left or right — its cards go along, Ctrl+Z undoes it. Atlas can do the same when asked (`{"op":"lane"}`).
+
+### Changed
+- **The board speaks English in English mode:** entity kinds (Organisation, Technology …), relation words in the card zoom, the crew view and the card zoom's hints follow the room's language — also in the board picture and the saved web page.
+- **Status notes on the board** („1 ausgewählt …“, „Atlas denkt nach …“) moved to the bottom right above the zoom bar, so they never collide with the welcome card at the top.
+- The app tour's spotlight uses a calm accent ring instead of a glow.
+- **A compact room header:** Atlas' header is about 95 px instead of 160 (smaller face, name and line in one block, the „Missionszentrale“ line moved into the name's tooltip) — the board gets the height.
+
+### Fixed
+- Card names in an answer's footer („Als Nächstes“) stayed empty when the answer was about another board than the open one; footer and answer now share the same card references and refresh once the project's boards are loaded.
+
 ## [0.4.0] - 2026-10-12
 
 Atlas, the AI operator you talk to, with a structured whiteboard (Board 2.0), presentations that
@@ -454,7 +471,8 @@ First public release.
 - Codex's "Update available" prompt now counts as a dialog: queued text is never typed into it
   (Enter there would run `npm install -g`), and the pane asks you to answer it.
 
-[Unreleased]: https://github.com/darkcool70/robs-ai-cockpit/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/darkcool70/robs-ai-cockpit/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/darkcool70/robs-ai-cockpit/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/darkcool70/robs-ai-cockpit/compare/v0.3.1...v0.4.0
 [0.2.0]: https://github.com/darkcool70/robs-ai-cockpit/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/darkcool70/robs-ai-cockpit/releases/tag/v0.1.0

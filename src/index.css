@@ -650,6 +650,10 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
 .board-lane-count { font-size: 13px; color: var(--b-ink3); font-variant-numeric: tabular-nums; }
 .board-lane-empty { margin-top: 26px; font-size: 12.5px; color: var(--b-ink3); }
 .board-lane-far { font-weight: 700; letter-spacing: -0.01em; color: var(--b-ink2); white-space: nowrap; }
+.board-lane-move { display: grid; place-items: center; width: 22px; height: 22px; border-radius: 7px; color: var(--b-ink3); }
+.board-lane-move:hover:not(:disabled) { background: var(--b-fill-hi); color: var(--b-ink); }
+.board-lane-move:disabled { opacity: 0.3; }
+.board-lane-input { box-shadow: 0 0 0 2px color-mix(in srgb, var(--b-accent) 45%, transparent); }
 .board-sublane { font-size: 11px; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: var(--b-ink3); }
 /* toolbar and tabs: one translucent material, monochrome icons */
 .board-bar { border-color: var(--b-hair) !important; background: var(--b-glass) !important; border-radius: 12px; box-shadow: var(--b-shadow-bar); -webkit-backdrop-filter: blur(20px) saturate(1.6); backdrop-filter: blur(20px) saturate(1.6); }
