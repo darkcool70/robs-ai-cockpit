@@ -57,7 +57,7 @@ was changed where. The cockpit turns that into one calm dashboard.
 ## A tour
 
 ### Atlas: an AI operator you talk to, on a shared whiteboard · *Pro* · new in 0.4
-<img src="docs/images/atlas-present.jpg" alt="Atlas presents a board section by section: a large section title, the spoken words as subtitles, the chat with card references" width="100%" />
+<img src="docs/images/atlas-room.png" alt="Atlas at work on example data: a board in sections with a live web page, key numbers, a funnel chart, a hypothesis with evidence for and against, two crew agents with live terminals and their changes; on the right the chat with card references and a next step to accept" width="100%" />
 
 Talk or type to **Atlas**, your operator. It researches, plans, hands work to your agents and lays
 everything out on a **whiteboard that thinks in sections**: *Goal & context · Sources · Numbers ·
