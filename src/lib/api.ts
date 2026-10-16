@@ -63,6 +63,8 @@ export interface SessionOptions {
   webSearch?: boolean;
   chrome?: boolean;
   initialPrompt?: string | null;
+  /** Claude / Codex: the cockpit's own MCP tools (the board) for this session. */
+  cockpitTools?: boolean;
 }
 
 export interface ProjectDefaults {

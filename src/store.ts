@@ -20,6 +20,7 @@ import * as terms from "./lib/terminals";
 import { pickFailoverAccount } from "./lib/failover";
 import { clearIssue, healthUpdate, readIssues, troubledAccounts, withAccountModel, type AccountIssues } from "./lib/accountHealth";
 import type { Voice } from "./lib/voice";
+import { friendlyError } from "./lib/friendlyError";
 
 /** Tray/taskbar attention; unavailable in tests and plain browsers. */
 async function requestAttention() {
@@ -655,6 +656,8 @@ export const useApp = create<State>((set, get) => ({
 
   toast: (text, kind = "info", action) => {
     const id = toastId++;
+    // an error reads like a person helping, in the room's language (friendlyError.ts)
+    if (kind === "error") text = friendlyError(text, get().settings.voiceLanguage === "en");
     set((s) => ({ toasts: [...s.toasts, { id, kind, text, action }] }));
     window.setTimeout(() => get().dismissToast(id), action ? 15000 : kind === "error" ? 8000 : 4000);
   },

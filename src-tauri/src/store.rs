@@ -260,6 +260,12 @@ pub fn insert_session(c: &Connection, s: &Session) -> AppResult<()> {
     Ok(())
 }
 
+/// New launch options for a session (they apply from its next start).
+pub fn set_session_options(c: &Connection, id: &str, options: &crate::cli::SessionOptions) -> AppResult<()> {
+    c.execute("UPDATE sessions SET options=?2 WHERE id=?1", params![id, serde_json::to_string(options)?])?;
+    Ok(())
+}
+
 pub fn get_session(c: &Connection, id: &str) -> AppResult<Session> {
     c.query_row("SELECT * FROM sessions WHERE id=?1", [id], session_from)
         .optional()?

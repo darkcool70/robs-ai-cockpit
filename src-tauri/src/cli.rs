@@ -276,6 +276,8 @@ pub struct SessionOptions {
     pub chrome: bool,
     /// Typed into the session once it is ready (first start only).
     pub initial_prompt: Option<String>,
+    /// Claude / Codex: the cockpit's own MCP tools (the board) for this session (mcp.rs).
+    pub cockpit_tools: bool,
 }
 
 pub const AUTONOMY_LEVELS: &[&str] = &["manual", "accept-edits", "plan", "auto", "full"];
@@ -521,6 +523,37 @@ pub fn build_agent_command(l: &AgentLaunch) -> LaunchSpec {
     let (program, args) = wrap_program(l.binary, args);
     let (env_set, env_remove) = base_env(&l.account);
     LaunchSpec { program, args, cwd: l.cwd.to_string(), env_set, env_remove }
+}
+
+/// The environment variable that carries the cockpit MCP token to Codex (never on the command line).
+pub const COCKPIT_MCP_TOKEN_ENV: &str = "COCKPIT_MCP_TOKEN";
+
+/// Give a launched session the cockpit's MCP server (mcp.rs). Claude: `--mcp-config <file>` (the
+/// file holds the URL and the bearer token; the tools are allowed in its `--settings`). Codex: the
+/// server only for this session via `-c` (the user's config.toml is never touched), the token in
+/// the environment, the cockpit's tools approved. Other CLIs: unchanged.
+pub fn add_cockpit_mcp(spec: &mut LaunchSpec, provider: Provider, url: &str, token: &str, claude_config: Option<&str>) {
+    match provider {
+        Provider::Claude => {
+            if let Some(f) = claude_config {
+                spec.args.push("--mcp-config".into());
+                spec.args.push(f.into());
+            }
+        }
+        Provider::Codex => {
+            // unquoted on purpose (see model_reasoning_effort): survives cmd.exe, read as a raw string
+            for kv in [
+                format!("mcp_servers.cockpit.url={url}"),
+                format!("mcp_servers.cockpit.bearer_token_env_var={COCKPIT_MCP_TOKEN_ENV}"),
+                "mcp_servers.cockpit.default_tools_approval_mode=approve".to_string(),
+            ] {
+                spec.args.push("-c".into());
+                spec.args.push(kv);
+            }
+            spec.env_set.push((COCKPIT_MCP_TOKEN_ENV.to_string(), token.to_string()));
+        }
+        _ => {}
+    }
 }
 
 /// Interactive official login flow for a profile (runs in a terminal pane).
@@ -1039,5 +1072,23 @@ mod custom_tests {
         assert!(!spec.env_set.iter().any(|(k, _)| k.is_empty() || k.ends_with("_HOME")));
         assert!(spec.env_remove.iter().any(|r| r == "GEMINI_API_KEY"), "an API key would bill instead of the free login");
         assert!(build_login_command("agy", &acc, "/w", false).args.is_empty(), "agy asks for the Google login itself");
+    }
+
+    #[test]
+    fn cockpit_mcp_reaches_claude_and_codex_without_touching_their_config() {
+        let blank = || LaunchSpec { program: "x".into(), args: vec![], cwd: "/w".into(), env_set: vec![], env_remove: vec![] };
+        let mut c = blank();
+        add_cockpit_mcp(&mut c, Provider::Claude, "http://127.0.0.1:5/mcp", "tok", Some("/run/mcp.json"));
+        assert_eq!(c.args, vec!["--mcp-config", "/run/mcp.json"]);
+        assert!(c.env_set.is_empty(), "Claude reads the token from its config file");
+        let mut x = blank();
+        add_cockpit_mcp(&mut x, Provider::Codex, "http://127.0.0.1:5/mcp", "s3cr3t", None);
+        assert!(x.args.contains(&"mcp_servers.cockpit.url=http://127.0.0.1:5/mcp".to_string()));
+        assert!(x.args.contains(&"mcp_servers.cockpit.default_tools_approval_mode=approve".to_string()));
+        assert!(!x.args.iter().any(|a| a.contains("s3cr3t")), "the token never goes on the command line");
+        assert_eq!(x.env_set, vec![(COCKPIT_MCP_TOKEN_ENV.to_string(), "s3cr3t".to_string())]);
+        let mut g = blank();
+        add_cockpit_mcp(&mut g, Provider::Copilot, "u", "t", None);
+        assert!(g.args.is_empty() && g.env_set.is_empty());
     }
 }

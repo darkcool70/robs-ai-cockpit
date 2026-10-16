@@ -7,7 +7,12 @@ die erledigten Stufen stehen in [BOARD_ROADMAP.md](BOARD_ROADMAP.md), der Testpl
 
 Legende: [ ] offen · [~] in Arbeit · [x] erledigt · ○ nur Unit-Tests, live noch zu prüfen
 
-## In Arbeit (12.10.2026)
+## In Arbeit (16.10.2026)
+
+- [x] ○ (16.10.) **Meldungen in Klartext mit Lösung** (Board-3.0-Plan, Abschnitt 8): Fehlermeldungen aus dem Hintergrund („no logged-in account“, „Session is not running“, „The board is too big …“ u. a. ~35) erscheinen im deutschen Raum als hilfreicher Satz mit nächstem Schritt („Kein angemeldetes Konto frei – melde unter „Accounts“ ein Claude- oder Codex-Konto an.“); Unbekanntes bleibt unverändert (`src/lib/friendlyError.ts` + Tests, angewendet in jedem Fehler-Hinweis).
+- Hinweis 16.10.: An Board 3.0 (Phase 0: MCP, Galerie, Design-Tokens, Aufteilung von BoardView/operator) arbeitet eine andere Sitzung — deren Dateien bleiben unberührt.
+
+## Zuvor in Arbeit (12.10.2026)
 
 - [x] (12.10., live geprüft) **Abschnitte umbenennen und verschieben** — Doppelklick auf die Überschrift → eigener Name; ‹ › neben der Überschrift → einen Schritt nach links/rechts, die Karten wandern mit; Strg+Z macht es rückgängig; Atlas kann es auch (`{"op":"lane"}`). Live: „Zahlen“ nach rechts, „Erkenntnisse“ → „Was wir wissen“, dreimal Strg+Z → Ausgangszustand.
 - [x] (12.10., live gesehen) **Kompakter Kopf im Atlas-Raum** (~95 statt ~160 px; „Missionszentrale“-Zeile als Tooltip am Namen) — mehr Höhe fürs Board. Fußzeilen-Kartennamen im Chat bei Antworten zu einem anderen Board repariert (live).
@@ -54,6 +59,7 @@ Legende: [ ] offen · [~] in Arbeit · [x] erledigt · ○ nur Unit-Tests, live 
 
 ## Als Nächstes
 
+- [ ] **Board 3.0** nach Plan ([BOARD_3_PLAN.md](BOARD_3_PLAN.md), 14.10.): Atlas live per Cockpit-MCP, Ruhe (3 statt 7 Bedienflächen), Kartensystem mit 7 Familien und Zoomstufen ohne Klippe, Zusammenarbeit (Aufmerksamkeit, Vorschläge, Herkunft, Verlauf). - [ ] **Rob:** die vier Entscheidungen in Abschnitt 13 treffen, dann Phase 0.
 - [ ] **Rob:** Supertonic-Hörproben anhören (zuerst 01 Max, 06 Anna), Stimme wählen; im Sprach-Reiter „Supertonic-Stimmen laden (415 MB)“ und im Gespräch testen.
 - [ ] **Lizenz:** Die Nutzungsbeschränkungen von Supertonics Modell-Lizenz (OpenRAIL-M) in die Pro-Lizenzbedingungen (AGB) aufnehmen, bevor die Pro-Version mit Supertonic verkauft wird.
 

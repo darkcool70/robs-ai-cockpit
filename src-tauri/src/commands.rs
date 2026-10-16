@@ -767,9 +767,14 @@ fn start_inner(app: &AppHandle, state: &AppState, id: &str, cols: u16, rows: u16
         let version = state.clis.lock().iter().find(|c| c.provider == provider.as_str()).and_then(|c| c.version.clone());
         sink::supports_stop_failure(version.as_deref())
     };
+    // the cockpit's own tools (the board, mcp.rs) for sessions that asked for them — once the UI registered them
+    let cockpit_tools = s.options.cockpit_tools && matches!(provider, Provider::Claude | Provider::Codex) && crate::mcp::get().has_tools();
     let settings_file = if hooks {
         let exe = std::env::current_exe()?;
-        let settings = sink::claude_session_settings(&exe, &run_dir, statusline, setting_bool(&state.db, "activityDetails", true), stop_failure);
+        let mut settings = sink::claude_session_settings(&exe, &run_dir, statusline, setting_bool(&state.db, "activityDetails", true), stop_failure);
+        if cockpit_tools {
+            settings["permissions"] = crate::mcp::claude_permissions();
+        }
         let f = run_dir.join("settings.json");
         std::fs::write(&f, serde_json::to_vec_pretty(&settings)?)?;
         // Fresh event log for this run.
@@ -797,7 +802,7 @@ fn start_inner(app: &AppHandle, state: &AppState, id: &str, cols: u16, rows: u16
         SessionMode::Resume { session_id } => Some(session_id.clone()),
         _ => None,
     };
-    let spec = cli::build_agent_command(&AgentLaunch {
+    let mut spec = cli::build_agent_command(&AgentLaunch {
         binary: &bin,
         account: AccountEnv { provider, config_dir: &acc.config_dir },
         cwd: &s.cwd,
@@ -808,6 +813,17 @@ fn start_inner(app: &AppHandle, state: &AppState, id: &str, cols: u16, rows: u16
         options: &s.options,
         extra_args: &extra_args,
     });
+    if cockpit_tools {
+        let access = crate::mcp::get().issue_token(id)?;
+        let config = if provider == Provider::Claude {
+            let f = run_dir.join("mcp.json");
+            std::fs::write(&f, serde_json::to_vec_pretty(&crate::mcp::claude_config(&access))?)?;
+            Some(f.to_string_lossy().into_owned())
+        } else {
+            None
+        };
+        cli::add_cockpit_mcp(&mut spec, provider, &access.url, &access.token, config.as_deref());
+    }
 
     // Register runtime before spawning so early output is attributed.
     let mut rt = Runtime::new(
@@ -2370,6 +2386,30 @@ pub fn board_list(state: State<AppState>, prefix: String) -> AppResult<Vec<Value
         .query_map([&prefix], |r| Ok(json!({ "scope": r.get::<_, String>(0)?, "updatedAt": r.get::<_, String>(1)?, "title": r.get::<_, Option<String>>(2)? })))?
         .collect::<Result<Vec<_>, _>>()?;
     Ok(rows)
+}
+
+/// The UI registers the tools of the cockpit's MCP server (mcp.rs) and starts it.
+#[tauri::command(async)]
+pub fn mcp_register_tools(app: AppHandle, tools: Vec<Value>) -> AppResult<()> {
+    if tools.len() > 64 {
+        return Err(AppError::invalid("Too many tools"));
+    }
+    crate::mcp::get().register(app, tools)
+}
+
+/// The UI's answer to a tool call (event `mcp-call`).
+#[tauri::command(async)]
+pub fn mcp_reply(call_id: u64, result: Value) {
+    crate::mcp::get().reply(call_id, result);
+}
+
+/// Address and token of the MCP server for a caller (a session id; "test:…" for checks).
+#[tauri::command(async)]
+pub fn mcp_access(caller: String) -> AppResult<crate::mcp::McpAccess> {
+    if caller.is_empty() || caller.len() > 80 {
+        return Err(AppError::invalid("Invalid caller"));
+    }
+    crate::mcp::get().issue_token(&caller)
 }
 
 #[tauri::command(async)]

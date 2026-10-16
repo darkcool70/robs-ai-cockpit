@@ -11,6 +11,7 @@ pub mod extras;
 pub mod failure;
 pub mod git;
 pub mod hud;
+pub mod mcp;
 pub mod monitor;
 pub mod paths;
 pub mod procjob;
@@ -137,16 +138,20 @@ pub fn run() {
     let wake = Arc::new(wake::Wake::default());
     let wake_exit = wake.clone();
 
-    tauri::Builder::default()
-        // Must come first: a second start only brings the running window to the front. Two
-        // cockpits on one database would run loops twice and fight over the voice shortcuts.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+    let mut builder = tauri::Builder::default();
+    // Must come first: a second start only brings the running window to the front. Two
+    // cockpits on one database would run loops twice and fight over the voice shortcuts.
+    // A test instance with its own data folder (AI_COCKPIT_HOME) shares nothing and may run beside it.
+    if std::env::var_os("AI_COCKPIT_HOME").is_none() {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.unminimize();
                 let _ = w.show();
                 let _ = w.set_focus();
             }
-        }))
+        }));
+    }
+    builder
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -314,6 +319,9 @@ pub fn run() {
             commands::pptx_slides,
             commands::board_list,
             commands::board_delete,
+            commands::mcp_register_tools,
+            commands::mcp_reply,
+            commands::mcp_access,
             commands::tts_install,
             commands::tts_warmup,
             commands::tts_speak,
