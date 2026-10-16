@@ -6,6 +6,14 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+### Added
+- **Atlas works live on the board (Board 3.0, Pro):** the cockpit runs its own local MCP server (127.0.0.1, a key per session) and Atlas gets board tools — plan, read, what changed, add / update / remove cards, arrows, sections, show, „Kurz gesagt“, a board check, a picture of the board, a question to you as a choice card. Cards appear while Atlas researches instead of all at once at the end; your question stands as the first card the moment you ask (0.5 s on an empty board); a capsule shows Atlas' plan and „Fertig · 13 Karten · Ansehen“. Every tool runs through the same checked board ops as before; undo takes back Atlas' whole round. With the tools on, the snapshot sent to Atlas has one line about the board instead of up to 2,200 characters.
+- **Board 3.0 foundation:** design tokens, a card gallery, visual comparison tests and a performance baseline (`pro/scripts/visual.mjs`, `perf.mjs`).
+- **Error messages in plain words:** backend errors in the German room read as a helpful sentence with the next step („Die Sitzung läuft gerade nicht – starte sie zuerst.“).
+
+### Changed
+- The tool chips under an answer and the line under Atlas' name say what Atlas does with the board („legt Karten an“, „prüft das Board“); section headings in the overview shrink to fit instead of being cut; the „Done / Verified / Next“ footer is recognised even when sources follow it.
+
 ## [0.4.1] - 2026-10-14
 
 A tidier Atlas room: sections you can rename and move, a compact header that gives the board

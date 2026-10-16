@@ -10,7 +10,7 @@ Legende: [ ] offen · [~] in Arbeit · [x] erledigt · ○ nur Unit-Tests, live 
 ## In Arbeit (16.10.2026)
 
 - [x] ○ (16.10.) **Meldungen in Klartext mit Lösung** (Board-3.0-Plan, Abschnitt 8): Fehlermeldungen aus dem Hintergrund („no logged-in account“, „Session is not running“, „The board is too big …“ u. a. ~35) erscheinen im deutschen Raum als hilfreicher Satz mit nächstem Schritt („Kein angemeldetes Konto frei – melde unter „Accounts“ ein Claude- oder Codex-Konto an.“); Unbekanntes bleibt unverändert (`src/lib/friendlyError.ts` + Tests, angewendet in jedem Fehler-Hinweis).
-- Hinweis 16.10.: An Board 3.0 (Phase 0: MCP, Galerie, Design-Tokens, Aufteilung von BoardView/operator) arbeitet eine andere Sitzung — deren Dateien bleiben unberührt.
+- [~] (16.10.) **Board 3.0 übernommen** (Robs Entscheidung): Phase 0 geprüft und lokal committet; **Phase 1 „Atlas live“** großteils fertig und live geprüft — Atlas arbeitet über Cockpit-Werkzeuge (MCP) direkt am Board: deine Frage steht nach 0,5 s als erste Karte, Plan in der Kapsel, Karten erscheinen während der Runde, Board-Prüfung, „Kurz gesagt“, kurze Chat-Antwort. Stand und Rest: [BOARD_3_PLAN.md](BOARD_3_PLAN.md) Abschnitt 9. - [ ] **Rob:** Atlas live ausprobieren (neue Frage auf leerem Board) — wirkt es wie „er arbeitet mit mir am Board“?
 
 ## Zuvor in Arbeit (12.10.2026)
 

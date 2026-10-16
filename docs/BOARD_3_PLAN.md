@@ -543,13 +543,13 @@ zeigt eine Karte, die weniger als 1,5 s nach dem Absenden erscheint.
 
 ### Phase 1 – Atlas live · L (das Herzstück)
 
-- [ ] Alle Board-Werkzeuge aus 6.1 mit Schemas, Prüfung und Antworten
-- [ ] Ein Befehlskern für MCP und `cockpit-actions` (Rückfall)
-- [ ] Schlanker Schnappschuss: eine Zeile plus `board_changes`
-- [ ] Kapsel mit Plan (`plan`, `plan_step`)
-- [ ] Atlas-Zeiger und wachsende Karten
-- [ ] `board_check()` nach Rezept und Persona-Regeln 3.0
-- [ ] `ask_user` als Auswahl-Karte, die Atlas' Runde fortsetzt
+- [x] (16.10.) Board-Werkzeuge mit Schemas, Prüfung und Antworten (`pro/src/mcpBoard.ts`, 14 Werkzeuge): plan, plan_step, board_read (nach Abschnitt, IDs, Suchwort, seitenweise), board_changes (was du inzwischen getan hast, Auswahl, sichtbarer Ausschnitt), card_add (Antwort: wohin jede Karte kam + Hinweise: Titel zu lang, Karte gibt es schon, zu viele auf einmal), card_update, card_remove, link, section, show (glow/camera/spotlight), summary („Kurz gesagt“), board_check, board_look (Bild), ask_user (Auswahl-Karte). Die Antworten der Werkzeuge lenken Atlas (z. B. nach `plan`: „zuerst die Frage-Karte, dann nach jeder Suche Karten“). - [ ] recall und agents_* als Werkzeug
+- [x] (16.10.) Ein Befehlskern: Werkzeuge laufen über dieselben geprüften Board-Ops (`cleanOps` → `changeBoard`) wie der `cockpit-actions`-Block (bleibt Rückfall für alles ohne Werkzeug)
+- [x] (16.10.) Schlanker Schnappschuss: mit Werkzeugen nur noch eine Zeile zum Board (Titel, Kartenzahl, Abschnitte, Auswahl, sichtbarer Ausschnitt) statt bis zu 2.200 Zeichen
+- [x] (16.10., live) Kapsel mit Plan (`AtlasCapsule.tsx`): „Atlas · 1/3 · Quellen suchen“ → „Fertig · 13 Karten · Ansehen“; zählt Atlas' Karten der Runde direkt auf dem Board (übersteht Rückfragen zwischendurch)
+- [~] Atlas-Zeiger (vorhanden: Atlas' Hand an der zuletzt berührten Karte) und gestaffelt erscheinende Karten (vorhanden); **neu: deine Frage steht sofort als erste Karte** (leeres Board, live: erste Karte nach 0,5 s statt 26–30 s)
+- [~] `board_check()` (Layout-Prüfung + fehlendes „Kurz gesagt“) und Persona-Regeln 3.0 (Abschnitt „Working live on the board“) — Rezepte folgen
+- [~] `ask_user` als Auswahl-Karte (die Antwort kommt als nächste Nachricht) — live noch prüfen
 - [ ] Crew-Agenten mit eingeschränkten Werkzeugen für ihren Rahmen
 
 **Fertig, wenn:** In den sechs Szenarien erscheint die erste Karte in unter 1,5 s, es geht keine
