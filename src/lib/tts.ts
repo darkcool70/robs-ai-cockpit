@@ -54,11 +54,18 @@ export function summarize(text: string, max = 280): string {
  * Pieces to synthesise one after another, so the first sentence plays while the next is made:
  * sentences, very short ones joined to the next, long ones cut at a comma.
  */
+/** Words with a full stop that do not end a sentence („ca. 48 %“, „z. B.“, „bzw.“). */
+const ABBREV = /(?:^|[\s(])(?:ca|bzw|etc|usw|vs|evtl|ggf|inkl|zzgl|exkl|max|min|mind|Nr|Dr|Prof|St|Mio|Mrd|Tsd|Std|Min|Sek|Jh|Abb|vgl|approx|incl|[A-Za-zÄÖÜäöü])\.$/;
+
 export function splitSentences(text: string, max = 220): string[] {
-  // a sentence ends at . ! ? … followed by a space — not inside ".wasm", "v1.2" or "z.B." — and a
-  // `[[id]]` marker belongs to the sentence it stands in
+  // a sentence ends at . ! ? … followed by a space — not inside ".wasm", "v1.2" or "z.B.", not after
+  // „ca.“ or „z. B.“ — and a `[[id]]` marker belongs to the sentence it stands in
   const flat = text.replace(/\s+/g, " ").trim();
-  const raw = flat ? flat.split(/(?<=[.!?…]["»“”')\]]*)\s+/) : [];
+  const raw: string[] = [];
+  for (const piece of flat ? flat.split(/(?<=[.!?…]["»“”')\]]*)\s+/) : []) {
+    if (raw.length && ABBREV.test(raw[raw.length - 1])) raw[raw.length - 1] += ` ${piece}`;
+    else raw.push(piece);
+  }
   const out: string[] = [];
   let carry = "";
   for (const r of raw.map((s) => s.trim()).filter(Boolean)) {
@@ -188,13 +195,34 @@ function rate(): number {
 
 /** Room / robot effects between the voice and the speakers; everything ends in the level meter. */
 let analyser: AnalyserNode | null = null;
+let panner: StereoPannerNode | null = null;
 function output(c: AudioContext): AudioNode {
   if (!analyser) {
     analyser = c.createAnalyser();
     analyser.fftSize = 512;
     analyser.connect(c.destination);
   }
-  return analyser;
+  // räumlicher Klang: the voice can come from where the card it talks about is (panVoice)
+  if (!panner) {
+    panner = c.createStereoPanner();
+    panner.connect(analyser);
+  }
+  return panner;
+}
+
+/**
+ * Räumlicher Klang: the voice comes from the side of the screen where the card it talks about is
+ * (-1 left … 1 right), gliding there softly. 0 is the middle. Off with the setting `voiceSpatial`.
+ */
+export function panVoice(x: number) {
+  const target = useApp.getState().settings.voiceSpatial === false ? 0 : Math.max(-1, Math.min(1, x || 0));
+  const c = audioContext();
+  output(c);
+  try {
+    panner!.pan.setTargetAtTime(target, c.currentTime, 0.2);
+  } catch {
+    /* a context that is closing */
+  }
 }
 
 let impulse: AudioBuffer | null = null;
@@ -420,6 +448,8 @@ export function speak(text: string, opts: SpeakOptions = {}) {
   const voice = neuralVoice(opts.voice ?? mine.voice);
   const fx = opts.fx ?? mine.fx;
   current = { id, opts, parts: [t], index: 0 };
+  // every new answer starts from the middle; a card it names draws it to its side
+  if (panner) panVoice(0);
   useApp.setState({ speaking: { sessionId: opts.sessionId ?? null, name: opts.name ?? "Assistant" } });
   const finish = (complete: boolean) => {
     if (id !== utterance) return;
@@ -433,6 +463,7 @@ export function speak(text: string, opts: SpeakOptions = {}) {
     }
     after = [];
     useApp.setState({ speaking: null });
+    if (panner) panVoice(0);
     if (complete) opts.onEnd?.();
   };
   const mark = (part: string) => {

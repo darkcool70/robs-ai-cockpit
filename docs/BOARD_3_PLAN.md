@@ -587,12 +587,12 @@ Agentenstatus erkennbar (Bildtest und Augenmaß), und die Galerie ist hell und d
 
 ### Phase 4 – Zusammenarbeit · L
 
-- [ ] Gemeinsame Aufmerksamkeit (Ausschnitt, Maus und Auswahl gehen an Atlas; Atlas' Rand an Karten)
+- [~] Gemeinsame Aufmerksamkeit (Ausschnitt, Maus und Auswahl gehen an Atlas; Atlas' Rand an Karten) — (17.10.) die Karte unter der Maus geht mit jeder Nachricht mit (`pointing.ts`, siehe [BEGEISTERUNG_ANALYSE.md](BEGEISTERUNG_ANALYSE.md) 1.1)
 - [ ] Vorschlagsmodus für deine Karten; Umbau-Vorschläge mit Vorschau
-- [ ] Herkunft im Kartenfuß; die Rechnung von Zahlen in „Info“
+- [~] Herkunft im Kartenfuß; die Rechnung von Zahlen in „Info“ — (17.10.) zuerst als Röntgenblick (Alt halten); im Normalzustand bleibt die Karte ohne Fuß
 - [ ] Verlauf mit Schieberegler und Wiederherstellen
 - [ ] Kurze Chat-Antworten, „Kurz gesagt“, „im Gespräch erwähnt“, Vorschlags-Chips im Board
-- [ ] Zeigen und Sprechen zusammen
+- [x] (17.10., live) Zeigen und Sprechen zusammen
 
 **Fertig, wenn:** Atlas ändert keine Karte von dir ohne dein Ja (Test), jede Atlas-Karte hat eine
 Herkunft, und der Verlauf spielt 20 Runden flüssig ab.

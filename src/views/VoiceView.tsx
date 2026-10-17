@@ -267,6 +267,9 @@ export function VoiceView() {
               Keep me posted while it thinks
             </Toggle>
           )}
+          <Toggle on={settings.voiceSpatial !== false} onChange={(v) => put("voiceSpatial", v)} hint="When the operator talks about a card on its board, its voice comes softly from that side of the screen — best with headphones (Pro).">
+            Voice from the card's side
+          </Toggle>
           <Toggle on={settings.boardSounds !== false} onChange={(v) => put("boardSounds", v)} hint="Soft sounds on the operator's board: cards landing, the pen drawing, the spotlight, a page turning (Pro).">
             Board sounds
           </Toggle>

@@ -18,6 +18,11 @@ describe("speech in pieces", () => {
       "Danach lädt der Browser sie und prüft alles.",
     ]);
     expect(splitSentences("")).toEqual([]);
+    // „ca.“ and „z. B.“ do not end a sentence (it was spoken as „Durchschnittlich ca.“, then a pause)
+    expect(splitSentences("Durchschnittlich ca. 70 % brechen den Kauf ab. Viele Tools, z. B. Claude Code, helfen dabei sehr.")).toEqual([
+      "Durchschnittlich ca. 70 % brechen den Kauf ab.",
+      "Viele Tools, z. B. Claude Code, helfen dabei sehr.",
+    ]);
   });
   it("cuts long sentences at a comma", () => {
     const long = `${"Das ist ein sehr langer Satz mit vielen Wörtern".repeat(3)}, und hier geht es weiter mit noch mehr Text ${"bla ".repeat(30)}.`;

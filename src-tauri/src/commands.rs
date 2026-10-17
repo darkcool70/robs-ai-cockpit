@@ -1721,7 +1721,7 @@ const SETTING_KEYS: &[&str] = &[
     // account health: last model / login failure per account, the cockpit's model per account
     "accountHealth", "accountModels",
     // voice control (Voice tab)
-    "ttsEngine", "ttsVoiceEngine", "ttsQuality", "ttsNeuralVoice", "ttsFx", "ttsPitch", "ttsStyle", "ttsAutoLanguage", "ttsGermanVoice", "ttsGermanPitch", "reminders", "boardSounds", "voiceCallouts", "voiceCalloutFx", "voiceCalloutVoice", "voiceSoundStyle",
+    "ttsEngine", "ttsVoiceEngine", "ttsQuality", "ttsNeuralVoice", "ttsFx", "ttsPitch", "ttsStyle", "ttsAutoLanguage", "ttsGermanVoice", "ttsGermanPitch", "reminders", "boardSounds", "voiceSpatial", "voiceCallouts", "voiceCalloutFx", "voiceCalloutVoice", "voiceSoundStyle",
     "voiceSendDelayMs", "voiceStandbyMs", "voiceShortAnswers", "voiceAnnounce", "voiceMainTarget", "voiceOperatorTalk",
     "voiceAck", "voiceFillers", "voiceBargeIn", "voiceWelcome", "voiceWelcomeMin", "voiceWakeWord", "voiceWakeWords", "voiceTalkSilenceMs", "voicePolite", "voiceBackchannel", "voiceBreakpointMs",
     // when the cockpit speaks up: "asked" (default) / "important" / "all" (speakPolicy.ts)

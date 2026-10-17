@@ -642,6 +642,20 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
 .board-edge-focus .board-edge:not(.board-edge-for):not(.board-edge-against):not(.board-edge-live) { stroke: var(--b-accent); }
 .board-edge-focus .board-edge-label { border-color: color-mix(in srgb, var(--b-accent) 45%, transparent); color: var(--b-ink); }
 .board-recede { opacity: 0.4; }
+/* „das hier“: the card that went along with your words rings once, so you see Atlas got it */
+.board-you-pointed::before { content: ""; position: absolute; inset: -4px; border-radius: 16px; border: 2px solid var(--b-accent); pointer-events: none; animation: board-you-point 1.3s var(--b-ease) both; display: block; }
+@keyframes board-you-point { 0% { opacity: 0; transform: scale(0.96); } 18% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(1.06); } }
+/* Aufbau im Takt der Rede: a card of the slide waits in the background until it is named, then comes forward (.board-glide fades it) */
+.board-unsaid { opacity: 0.1 !important; filter: blur(3px) saturate(0.4); box-shadow: none !important; }
+@media (prefers-reduced-motion: reduce) { .board-unsaid { filter: none; } }
+/* Röntgenblick (Alt held): where every card comes from, in a calm glass label above it */
+.board-xray { z-index: 6; padding: 2px 9px; border-radius: 999px; border: 1px solid var(--b-hair-hi); background: color-mix(in srgb, var(--b-card-hi) 94%, transparent); box-shadow: var(--b-shadow); backdrop-filter: blur(10px); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 11px; line-height: 16px; font-weight: 500; color: var(--b-ink2); font-variant-numeric: tabular-nums; animation: board-fade 0.12s ease both; }
+.board-xray-who { color: var(--b-ink); font-weight: 650; }
+.board-xray-dot { color: var(--b-ink3); }
+.board-xray-good { color: var(--b-green); }
+.board-xray-bad { color: var(--b-red); }
+.board-xray-warn { color: var(--b-orange); font-weight: 650; }
+.board-xray-ring { z-index: 5; border-style: dashed; border-color: var(--b-orange); animation: board-fade 0.12s ease both; }
 /* frames are chapters: a soft surface, a clear title */
 .board-frame { background: var(--b-lane); border: 1px solid var(--b-hair) !important; border-radius: 22px; }
 .board-frame-title { color: var(--b-ink) !important; font-size: 15px; letter-spacing: -0.01em; padding: 14px 20px 8px; }

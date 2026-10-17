@@ -18,6 +18,12 @@ All notable changes to this project are documented here. The format follows
 - **A readable overview (Board 3.0, Pro):** below 60 % zoom every card shows its face in „Fernschrift“ — never under 11 px on screen, as large as the card allows: a number card its number and what it measures, a page its picture and site, a task ✓ / ◐ / ○, an agent whether it works, waits for you or failed, a choice what was picked, a hypothesis how sure it is, a company its name and „Organisation“; cards with the same title („Produkte“ for three companies) show their first line below it. Resting the pointer on a card in the overview shows its whole title, state and first sentence at reading size.
 - **Space opens a card large** (like Quick Look): the selected card — or, in the overview, the card under the pointer — with its evidence around it and, for notes, its whole text and details; Space closes it again. The big view now fits the board area instead of shrinking (next to the chat its text was about 9 px).
 - **Focus and context:** select a card and its arrows light up in the accent colour with what they mean („stützt“, „verursacht“ …), the cards they reach stay clear and everything else steps back.
+- **Point and say (Pro):** the card under your pointer goes with what you say or type — „Was bedeutet das hier?“ while pointing at „~48 %“ and Atlas answers about that card. A card you left a moment ago still counts (you moved to the mic); with „das hier“, „diese“, „this“ even one from up to two minutes ago. The card rings once so you see Atlas got it.
+- **Cards come forward as they are named:** in a spoken presentation the cards of a slide wait in the background and each comes forward the moment it is named — picture and word at the same time, like a keynote build. When the talk ends (or is cut short) all are there; without a voice nothing waits.
+- **X-ray (hold Alt):** every card says where it comes from — who made it (you, Atlas or an agent), how old it is, its site or file, how many sources back it, how sure a hypothesis is — and a claim of Atlas' with nothing behind it gets an orange dashed ring and „Annahme“. Also in the command palette; a short list of these moves is in „Info“.
+- **A voice from the card's side:** when Atlas names a card, his voice comes softly from that side of the screen (at most 45 % to one side, best with headphones; Voice → „Voice from the card's side“).
+- **Atlas tells it so it sticks:** a hook first, one idea per slide, numbers made concrete, never reading out a card, a strong end — in the presentation brief, the board tools and the persona; the board check flags numbers without their meaning („48 %“ with nothing that says what it means).
+- **docs/BEGEISTERUNG_ANALYSE.md:** what makes a seeing, speaking AI exciting, what great presentations and great tools (Excel, PowerPoint, VS Code, Photoshop, Figma …) do, and the prioritised plan in three waves.
 
 ### Changed
 - One status capsule at the top centre shows what Atlas is doing (its plan, the step, „denkt nach …“); the note about selected cards stands above the message field, with „Aufheben“.
@@ -31,6 +37,7 @@ All notable changes to this project are documented here. The format follows
 - Card names in older answers no longer go blank after switching boards; long messages to Atlas are kept in full (up to 2,000 characters) instead of being cut at 300.
 - In the big view an arrow pointing at the card reads from the card („kommt von Zusatzkosten“) instead of „führt zu“ over the card it comes from; long titles wrap instead of being cut.
 - Camera moves no longer hang while the window is in the background (they go straight to the target); section names in the overview share one size.
+- The voice no longer ends a sentence at „ca.“ or „z. B.“ („Durchschnittlich ca.“ – pause – „70 % …“).
 
 ## [0.4.1] - 2026-10-14
 
