@@ -458,7 +458,11 @@ Austausch per PowerPoint und Zahlen zum Anfassen.
   - Neu in tts.ts: `prepareSpeech`. Die nächste Zeile entsteht, während die aktuelle läuft. Live gemessen dauert der Start 0,5 s statt 3 s, Frage und Antwort folgen fast ohne Pause, Esc beendet. In der Testinstanz gibt es nur Thorsten, deshalb hat Rob die zweite Stimme noch nicht gehört.
 - [ ] 2.4 Probe-Publikum
 - [ ] 2.5 Lebende Zahlen mit Reglern
-- [ ] 2.6 Ebenen und Filter
+- [x] (18.10., live) **2.6 Ebenen und Filter** (`layers.ts` + Tests, `LayerBar.tsx`):
+  - L oder Ansicht › Ebenen öffnet eine Leiste über dem Dock mit Kartenzahl je Ebene. Leere Ebenen bleiben weg, was nicht passt, tritt zurück (ohne Ring), Esc stellt alles wieder her.
+  - „Offenes“ verbindet den Röntgenblick mit Arbeit: Es zeigt offene Fragen und Wahlen, Unerledigtes, Hypothesen zwischen 15 und 85 % und Atlas' Aussagen und Zahlen ohne Beleg. Die Ausgangsfrage zählt nicht mehr, sobald es ein „Kurz gesagt“ gibt.
+  - Auch als Palette-Befehl („Ebene: nur …“) und per Sprache („Zeig nur das Offene“).
+  - Live: Am Kanzleien-Board zeigt „Offenes 8“ die unbelegten Zahlen, die Hypothese, die Frage, die Aufgabe und die unbelegte Empfehlung; Quelle, belegte Zahl und Erledigtes treten zurück.
 - [ ] 2.7 Skizze → sauber
 - [ ] 2.8 Mitdenker-Modus
 - [ ] 2.9 Teste mich
