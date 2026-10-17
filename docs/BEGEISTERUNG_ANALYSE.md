@@ -456,6 +456,11 @@ Austausch per PowerPoint und Zahlen zum Anfassen.
   - Die Untertitel zeigen den Namen des Sprechers. Ohne Ton laufen sie in Lesegeschwindigkeit.
   - Das Gespräch entsteht ohne Kontingent aus dem Board; Atlas kann es auch selbst schreiben (`{"do":"talk","lines":[…]}`, über das act-Werkzeug sofort nutzbar).
   - Neu in tts.ts: `prepareSpeech`. Die nächste Zeile entsteht, während die aktuelle läuft. Live gemessen dauert der Start 0,5 s statt 3 s, Frage und Antwort folgen fast ohne Pause, Esc beendet. In der Testinstanz gibt es nur Thorsten, deshalb hat Rob die zweite Stimme noch nicht gehört.
+- [x] (18.10., live) **2.12 Vorher/Nachher einer Runde** (`roundDiff.ts` + Tests, `RoundBar.tsx`): Beim ersten Eingriff einer Atlas-Runde merkt sich `changeBoard` den Stand davor. „Was ist neu?“ in der Kapsel (oder die Palette) zeigt dann:
+  - neue Karten mit grünem Ring;
+  - geänderte mit orangem Ring und was sich geändert hat („~9.000 € → ~7.500 €“, „erledigt“, „Text“, „verschoben“);
+  - entfernte als rot gestrichelten Schatten.
+  Rückgängig nimmt die ganze Runde zurück, und zwar nur bis zum Stand davor. Ein bloßes Verschieben auf dem Bildschirm gilt nicht als Änderung. Live: 2 neu, 2 geändert, 1 entfernt; Rückgängig stellt alle 12 Karten wieder her.
 - [ ] 2.4 Probe-Publikum
 - [x] (18.10., live) **2.5 Lebende Zahlen mit Reglern** (`liveNumbers.ts` + Tests, StatBody/NumberSlider):
   - Zahl-Karten können eine Formel über andere Karten haben (`[[id]]` oder ihre Namen, „käufe * warenkorb“). `recalc` rechnet nach jeder Änderung in Abhängigkeitsreihenfolge, schreibt den Wert im Stil der Karte (Einheit, %, Mio, sinnvolle Nachkommastellen) und benennt Schleifen oder unbekannte Namen.

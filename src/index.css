@@ -775,6 +775,16 @@ button.board-legend:hover { color: var(--b-ink); background: var(--b-fill); }
 .board-num-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 15px; height: 15px; border-radius: 50%; background: #fff; border: 2px solid var(--b-accent); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); transition: transform 0.12s ease; }
 .board-num-slider:hover::-webkit-slider-thumb, .board-num-slider:active::-webkit-slider-thumb { transform: scale(1.15); }
 .board-num-slider:focus-visible { box-shadow: 0 0 0 2px var(--b-accent); }
+.board-diff-new { box-shadow: 0 0 0 2px var(--b-green), 0 0 24px color-mix(in srgb, var(--b-green) 30%, transparent) !important; }
+.board-diff-changed { box-shadow: 0 0 0 2px var(--b-orange), 0 0 24px color-mix(in srgb, var(--b-orange) 28%, transparent) !important; }
+.board-diff-tag { position: absolute; top: 0; right: 12px; transform: translateY(-50%); padding: 1px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; white-space: nowrap; max-width: 85%; overflow: hidden; text-overflow: ellipsis; color: #fff; z-index: 2; pointer-events: none; }
+.board-diff-tag.is-new { background: var(--b-green); }
+.board-diff-tag.is-changed { background: var(--b-orange); }
+.board-diff-gone { border-color: color-mix(in srgb, var(--b-red, #ff453a) 55%, transparent); background: color-mix(in srgb, var(--b-red, #ff453a) 6%, transparent); color: var(--b-ink3); }
+.board-roundbar { background: var(--b-glass-hi); border-color: var(--b-hair-hi); box-shadow: var(--b-shadow-panel); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); animation: msg-in 0.2s ease-out; }
+.board-round-new { color: var(--b-green); font-weight: 600; }
+.board-round-changed { color: var(--b-orange); font-weight: 600; }
+.board-round-removed { color: var(--b-red, #ff453a); font-weight: 600; }
 .board-layerbar { background: var(--b-glass-hi); border-color: var(--b-hair-hi); box-shadow: var(--b-shadow-panel); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); animation: msg-in 0.2s ease-out; scrollbar-width: none; }
 .board-layer { color: var(--b-ink2); transition: background 0.15s ease, color 0.15s ease; }
 .board-layer:hover { background: var(--b-fill); color: var(--b-ink); }
