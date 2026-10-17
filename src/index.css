@@ -655,6 +655,18 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
 .board-xray-good { color: var(--b-green); }
 .board-xray-bad { color: var(--b-red); }
 .board-xray-warn { color: var(--b-orange); font-weight: 650; }
+/* Geisterkarte: Atlas' next step, translucent with a dashed edge, until Tab makes it real */
+.board-ghost { padding: 12px 14px 12px; border-radius: 16px; border: 1.5px dashed color-mix(in srgb, var(--b-accent) 60%, transparent); background: color-mix(in srgb, var(--b-card) 82%, transparent); box-shadow: var(--b-shadow-hi); backdrop-filter: blur(14px); animation: board-ghost-in 0.4s var(--b-ease) both; }
+@keyframes board-ghost-in { from { opacity: 0; transform: translateY(8px) scale(0.98); filter: blur(4px); } to { opacity: 1; transform: none; filter: none; } }
+.board-ghost-head { display: flex; align-items: center; gap: 6px; font-size: 11px; font-weight: 600; letter-spacing: 0.02em; color: var(--b-accent); }
+.board-ghost-text { margin-top: 6px; font-size: 13.5px; line-height: 19px; color: var(--b-ink); display: -webkit-box; -webkit-line-clamp: 4; -webkit-box-orient: vertical; overflow: hidden; }
+.board-ghost-yes, .board-ghost-no { display: inline-flex; align-items: center; gap: 6px; height: 28px; padding: 0 10px; border-radius: 8px; font-size: 12px; font-weight: 600; }
+.board-ghost-yes { background: var(--b-accent); color: #fff; }
+.board-ghost-yes:hover { filter: brightness(1.08); }
+.board-ghost-no { color: var(--b-ink2); }
+.board-ghost-no:hover { background: var(--b-fill); color: var(--b-ink); }
+.board-ghost kbd { font: 600 10px/1 inherit; padding: 2px 5px; border-radius: 5px; background: color-mix(in srgb, currentColor 16%, transparent); }
+@media (prefers-reduced-motion: reduce) { .board-ghost { animation: board-fade 0.2s ease both; } }
 .board-xray-ring { z-index: 5; border-style: dashed; border-color: var(--b-orange); animation: board-fade 0.12s ease both; }
 /* frames are chapters: a soft surface, a clear title */
 .board-frame { background: var(--b-lane); border: 1px solid var(--b-hair) !important; border-radius: 22px; }

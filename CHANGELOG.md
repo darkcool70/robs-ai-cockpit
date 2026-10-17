@@ -23,6 +23,7 @@ All notable changes to this project are documented here. The format follows
 - **X-ray (hold Alt):** every card says where it comes from — who made it (you, Atlas or an agent), how old it is, its site or file, how many sources back it, how sure a hypothesis is — and a claim of Atlas' with nothing behind it gets an orange dashed ring and „Annahme“. Also in the command palette; a short list of these moves is in „Info“.
 - **A voice from the card's side:** when Atlas names a card, his voice comes softly from that side of the screen (at most 45 % to one side, best with headphones; Voice → „Voice from the card's side“).
 - **Atlas tells it so it sticks:** a hook first, one idea per slide, numbers made concrete, never reading out a card, a strong end — in the presentation brief, the board tools and the persona; the board check flags numbers without their meaning („48 %“ with nothing that says what it means).
+- **Ghost cards — Copilot for the board:** Atlas' next step („Soll ich die Primärstudie suchen …?“) stands below the board as a translucent card. **Tab** takes it (also in the empty message field) and Atlas sets to work, **Esc** wipes it away for this answer. It stays readable at every zoom and keeps clear of the cards.
 - **docs/BEGEISTERUNG_ANALYSE.md:** what makes a seeing, speaking AI exciting, what great presentations and great tools (Excel, PowerPoint, VS Code, Photoshop, Figma …) do, and the prioritised plan in three waves.
 
 ### Changed
@@ -37,6 +38,7 @@ All notable changes to this project are documented here. The format follows
 - Card names in older answers no longer go blank after switching boards; long messages to Atlas are kept in full (up to 2,000 characters) instead of being cut at 300.
 - In the big view an arrow pointing at the card reads from the card („kommt von Zusatzkosten“) instead of „führt zu“ over the card it comes from; long titles wrap instead of being cut.
 - Camera moves no longer hang while the window is in the background (they go straight to the target); section names in the overview share one size.
+- „Ja, mach das“ also comes for one proposal with two words for it („… zu bestätigen oder zu korrigieren?“); only a real choice („Zug oder Auto?“, „…, oder die Preise prüfen?“) has none.
 - The voice no longer ends a sentence at „ca.“ or „z. B.“ („Durchschnittlich ca.“ – pause – „70 % …“).
 
 ## [0.4.1] - 2026-10-14

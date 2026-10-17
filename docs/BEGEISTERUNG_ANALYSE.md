@@ -431,3 +431,16 @@ Austausch per PowerPoint und Zahlen zum Anfassen.
 - [x] (17.10.) **1.4 Dramaturgie für Atlas:** Präsentations-Auftrag (Aufhänger, Antwort, eine Idee pro Folie, [[id]] vorn, nicht vorlesen, Zahlen greifbar, starkes Ende), Werkzeug-Beschreibungen (`show`, `summary`, `card_add`), Board-Prüfung „numbers without meaning“ (Tests) und die Persona (wirkt ab dem nächsten Build).
 - [x] ○ (17.10.) **1.5 Stimme aus der Richtung der Karte** (`spatial.ts` + Tests, `panVoice` in tts.ts): Nennt Atlas eine Karte, wandert seine Stimme sanft zu ihrer Seite (höchstens ±45 %; auf einer Folie nach ihrem Platz unter den Folienkarten). Jede neue Antwort beginnt in der Mitte. Schalter unter Voice. Hörtest durch Rob steht aus.
 - [x] (17.10.) Nebenbei: Die Stimme trennt Sätze nicht mehr bei „ca.“ oder „z. B.“ (live gehört als „Durchschnittlich ca.“ – Pause).
+
+**Welle 2**
+
+- [x] (17.10., live) **2.1 Geisterkarten mit Tab** (`ghost.ts` + Tests, `cards/GhostCard.tsx`): Atlas' „Als Nächstes“ aus seiner letzten Antwort steht als durchscheinende Karte unter dem Board (unter „Nächste Schritte“, unterhalb aller Abschnitte, damit sie keine Karte verdeckt). Sie ist in jeder Zoomstufe lesbar. **Tab** nimmt den Vorschlag an (auch im leeren Chatfeld), dann legt Atlas los. **Esc** oder „Nicht jetzt“ wischt die Karte weg, und für diese Antwort kommt sie nicht wieder. Sie erscheint nicht beim Präsentieren, Lesen, im Film und in der großen Ansicht. Live: Karte erscheint bei 30 %, verdeckt nichts, Esc wischt sie weg. Tab nimmt denselben Weg wie „Ja, mach das“ im Chat; das ist per Unit-Test geprüft, aber nicht live, weil das eine echte Recherche-Runde starten würde. Nebenbei: „Ja, mach das“ gibt es jetzt auch für einen Vorschlag wie „… zu bestätigen oder zu korrigieren?“; nur eine echte Wahl („Zug oder Auto?“) hat keinen Knopf.
+- [ ] 2.2 Export als PowerPoint
+- [ ] 2.3 Das Board als Gespräch (zwei Stimmen)
+- [ ] 2.4 Probe-Publikum
+- [ ] 2.5 Lebende Zahlen mit Reglern
+- [ ] 2.6 Ebenen und Filter
+- [ ] 2.7 Skizze → sauber
+- [ ] 2.8 Mitdenker-Modus
+- [ ] 2.9 Teste mich
+- [ ] 2.10 Kritiker in Rot
