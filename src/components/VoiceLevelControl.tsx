@@ -4,7 +4,7 @@ import { setVoiceLevel } from "../lib/mute";
 import { VOICE_LEVELS, levelLabel, levelTitle, voiceLevelOf, type VoiceLevel } from "../lib/voiceLevel";
 import { cx } from "./ui";
 
-const ICON: Record<VoiceLevel, LucideIcon> = { mute: VolumeX, short: Volume1, normal: Volume2, all: AudioLines };
+export const LEVEL_ICON: Record<VoiceLevel, LucideIcon> = { mute: VolumeX, short: Volume1, normal: Volume2, all: AudioLines };
 
 /**
  * How much the assistant talks, one click: Stumm · Kurz · Normal · Alles. The same state as Ctrl+Shift+M,
@@ -24,7 +24,7 @@ export function VoiceLevelControl({ className }: { className?: string }) {
     >
       {VOICE_LEVELS.map((l) => {
         const on = l === level;
-        const Icon = ICON[l];
+        const Icon = LEVEL_ICON[l];
         const title = levelTitle(l, en, on);
         return (
           <button

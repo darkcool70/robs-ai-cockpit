@@ -11,8 +11,16 @@ All notable changes to this project are documented here. The format follows
 - **Board 3.0 foundation:** design tokens, a card gallery, visual comparison tests and a performance baseline (`pro/scripts/visual.mjs`, `perf.mjs`).
 - **Error messages in plain words:** backend errors in the German room read as a helpful sentence with the next step („Die Sitzung läuft gerade nicht – starte sie zuerst.“).
 
+- **A calm Atlas room (Board 3.0, Pro):** one 44 px header (Atlas and what it is doing, the board switcher in the middle, model, how much it talks as a menu, a round „Sprechen“ button, ⋯) instead of the big header, the talk bar and the tabs row over the board. The **board switcher** („Bereich › Board ▾“) finds a board as you type, starts a new one with Enter, shows what is new on the others and opens the overview.
+- **„Info“ next to the chat:** the inspector — for a selected card its kind, section, text, details, origin, source, connections (as sentences) and tags; with nothing selected the board: its result, its sections (a click goes there) and the legend. **„Crew“** holds the agents and the terminal.
+- **Selection bar and card menu:** a selected card gets a small bar (Ask · Agent · Large · ⋯); everything else is in the card menu (⋯ or right-click). The 8-button bar that appeared when hovering is gone.
+
 ### Changed
+- The board's tools sit in a dock at the bottom centre with the zoom; the board's title and „Kurz gesagt“ stand at the top of the board like a document heading (the „Was du siehst“ panel and the zoom bar are gone).
 - The tool chips under an answer and the line under Atlas' name say what Atlas does with the board („legt Karten an“, „prüft das Board“); section headings in the overview shrink to fit instead of being cut; the „Done / Verified / Next“ footer is recognised even when sources follow it.
+
+### Fixed
+- Camera moves no longer hang while the window is in the background (they go straight to the target); section names in the overview share one size.
 
 ## [0.4.1] - 2026-10-14
 

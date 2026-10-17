@@ -558,11 +558,11 @@ nimmt eine ganze Atlas-Runde zurück.
 
 ### Phase 2 – Ruhe · M
 
-- [ ] Neue Kopfzeile (Atlas, Board-Umschalter, Modell, Lautstärke-Menü, Sprechen)
-- [ ] Dock unten in der Mitte; Menüband und Reiterleiste entfallen
-- [ ] Titelblock mit „Kurz gesagt“ im Board; die Legende wandert nach „Info“
-- [ ] Inspektor „Info“ rechts; „Crew“ fasst Mission und Terminal zusammen
-- [ ] Auswahl-Leiste (höchstens vier Aktionen) und Kontextmenü; keine Leiste beim Darüberfahren
+- [x] (17.10.) Neue Kopfzeile, 44 px (Atlas · Zustand, Board-Umschalter „Bereich › Board ▾“ in der Mitte, Modell, Lautstärke-Menü, runde Sprechen-Taste, Aufwecken, ⋯) — `AtlasHeader.tsx`, `BoardSwitcher.tsx`
+- [x] (16./17.10.) Dock unten in der Mitte; Menüband und Reiterleiste entfallen (Zoom im Dock, Übersicht im Board-Umschalter)
+- [x] (16./17.10.) Titelblock mit „Kurz gesagt“ im Board; die Legende wandert nach „Info“ (alte „Was du siehst“-Tafel und Zoomleiste entfernt)
+- [x] (17.10.) Inspektor „Info“ rechts (Karte: Art, Abschnitt, Text, Details, Herkunft, Quelle, Verbindungen als Satz, Schlagwörter; ohne Auswahl: Board, Abschnitte, Legende); „Crew“ fasst Mission und Terminal zusammen — `InfoPanel.tsx`, `roomSide.ts`
+- [x] (17.10.) Auswahl-Leiste (Fragen · Agent · Groß · ⋯; bei der obersten Karte eines Abschnitts unter der Karte) und Kartenmenü per ⋯ oder Rechtsklick; keine Leiste beim Darüberfahren — `CardMenu.tsx`
 - [ ] Klebende Abschnittsköpfe
 - [ ] Eine Statuskapsel statt verstreuter Hinweise; Aktionen als Knöpfe, Einstellungen als Schalter
 

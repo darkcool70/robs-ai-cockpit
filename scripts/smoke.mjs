@@ -43,16 +43,23 @@ try {
   await delay(2500);
   if (opened) {
     await health("board");
-    // the room's control bar: talk, Stumm · Kurz · Normal · Alles (exactly one pressed), the ⋯ menu
-    const bar = await c.evaluate(`(()=>{ const g=document.querySelector('[data-testid=voice-level]'); return { seg: g ? g.querySelectorAll('button').length : 0, on: g ? g.querySelectorAll('button[aria-pressed=true]').length : 0, talk: !!document.querySelector('[data-testid=talk]'), more: !!document.querySelector('[data-testid=assistant-more]') }; })()`);
-    step(`control bar: ${JSON.stringify(bar)}`);
-    if (bar.seg !== 4 || bar.on !== 1 || !bar.talk || !bar.more) problems.push(`control bar incomplete: ${JSON.stringify(bar)}`);
-    const tabs = await c.evaluate(`[...document.querySelectorAll('button')].filter(b=>b.closest('[class*="tabs"],[role=tablist]')||/^(Plan)$/.test(b.textContent.trim())).length`);
-    step(`board tabs ≈ ${tabs}`);
+    // Atlas' header (Board 3.0): talk, how much it talks (a menu: Stumm · Kurz · Normal · Alles, one checked), the board switcher, the ⋯ menu
+    await c.evaluate(`void document.querySelector('[data-testid=voice-level] button')?.click()`); await delay(250);
+    const bar = await c.evaluate(`(()=>{ const g=document.querySelector('[data-testid=voice-level]'); return { seg: g ? g.querySelectorAll('[role=menuitemradio]').length : 0, on: g ? g.querySelectorAll('[aria-checked=true]').length : 0, talk: !!document.querySelector('[data-testid=talk]'), more: !!document.querySelector('[data-testid=assistant-more]'), boards: !!document.querySelector('[data-testid=board-switcher]') }; })()`);
+    await key("Escape", "Escape", 27); await delay(200);
+    step(`header: ${JSON.stringify(bar)}`);
+    if (bar.seg !== 4 || bar.on !== 1 || !bar.talk || !bar.more || !bar.boards) problems.push(`header incomplete: ${JSON.stringify(bar)}`);
+    const openSwitcher = () => c.evaluate(`void document.querySelector('[data-testid=board-switcher]')?.click()`);
+    await openSwitcher(); await delay(350);
+    const tabs = await c.evaluate(`document.querySelectorAll('[role=dialog] [role=option]').length`);
+    step(`boards in the switcher: ${tabs}`);
+    if (!tabs) problems.push("board switcher lists no boards");
+    await key("Escape", "Escape", 27); await delay(250);
     for (const t of [["Alles zeigen", "Show everything"], ["Hineinzoomen (+)", "Zoom in (+)"], ["Herauszoomen (−)", "Zoom out (−)"]]) { await clickTitles(...t); await delay(300); }
     await health("board zoomed");
     step("overview");
-    if (await clickTitles("Übersicht", "Overview")) { await delay(1500); await health("overview"); await clickTitles("Übersicht", "Overview"); await delay(600); }
+    await openSwitcher(); await delay(350);
+    if ((await clickText("Übersicht")) || (await clickText("Overview"))) { await delay(1500); await health("overview"); await openSwitcher(); await delay(350); if (!(await clickText("Übersicht"))) await clickText("Overview"); await delay(600); }
     else problems.push("overview button not found");
     step("palette");
     await c.evaluate(`document.activeElement?.blur()`);
