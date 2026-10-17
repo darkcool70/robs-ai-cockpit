@@ -473,8 +473,12 @@ Austausch per PowerPoint und Zahlen zum Anfassen.
   - Auch als Palette-Befehl („Ebene: nur …“) und per Sprache („Zeig nur das Offene“).
   - Live: Am Kanzleien-Board zeigt „Offenes 8“ die unbelegten Zahlen, die Hypothese, die Frage, die Aufgabe und die unbelegte Empfehlung; Quelle, belegte Zahl und Erledigtes treten zurück.
 - [x] (18.10., live) **2.14 Pfeil beim Sprechen** (`speechArrow.ts` + Tests, `SpeechArrowLayer.tsx`): Nennt ein Satz zwei Karten und sagt, wie sie zusammenhängen („führt zu“, „verursacht“, „stützt“, „widerspricht“, „hängt ab von“, „weil“ in Gegenrichtung), zeichnet Atlas' Stift den Pfeil mit Bedeutung und lässt ihn nach 2,8 s verblassen. Ganz im Sinn von „Sinn statt Schema“: nur mit Beziehung im Satz oder einem Pfeil, den das Board schon hat, also nie ein Pfeil, nur weil zwei Karten in einem Satz stehen. Wechselt dabei die Folie, wartet der Pfeil, bis der Folientitel weg ist. Live: „Die Hardware kostet viel, weil kleine Kanzleien keine IT haben“ ergibt einen gelben Pfeil „verursacht“ von „Kleine Kanzleien“ zur Hardware.
-- [ ] 2.7 Skizze → sauber
-- [ ] 2.8 Mitdenker-Modus
+- [x] (18.10.) **2.7 Skizze → sauber**: Im Kartenmenü einer Stiftzeichnung steht „Atlas zeichnet es sauber“. Atlas sieht sie über board_look und legt daneben eine saubere Fassung an, bei Ablauf oder Struktur als echte Karten mit Pfeilen in einem Rahmen. Robs Zeichnung bleibt. Nicht live getestet, weil das eine Atlas-Runde kostet.
+- [x] (18.10., live) **2.8 Mitdenker-Modus** (`thinkAloud.ts` + Tests):
+  - „Ich denk mal laut“ (oder Palette) startet ihn. Jeder Gedanke wird sofort Robs eigene Karte im passenden Abschnitt: Ziel, Frage oder Sorge zu „Risiken & offene Fragen“, „wir müssen“ zu den Schritten, „wir nehmen“ zur Entscheidung. Ideen ordnet die Board-Form ein (beim Planen „Ansätze“). Füllwörter fallen weg, der Titel bleibt in Robs Worten.
+  - Lange Denkpausen beenden nichts. „Fertig“ sagt, was noch fehlt.
+  - Dazu eine neue Layout-Regel: Eigene Karten, die mit Abschnitt angelegt werden, sortiert das Layout ein, bis Rob sie von Hand verschiebt.
+  - Live (Sätze per Dev-Hook, nicht per Mikrofon): 5 Gedanken landen in Ziel, Ansätze, Risiken & offene Fragen, Nächste Schritte. Rob: einmal echt mit dem Mikrofon ausprobieren.
 - [x] (18.10., live) **2.9 Teste mich** (`quiz.ts` + Tests, `QuizPanel.tsx`):
   - Ein Panel über dem Board fragt, statt Karten aufs Board zu legen. Die Fragen kommen aus dem Board selbst: die Empfehlung gegen seine anderen Optionen, und Zahlen mit glaubhaften Falschwerten (ein Anteil bleibt unter 100 %, nie Live-Zahlen). Die Reihenfolge verrät die Antwort nicht.
   - Nach der Antwort kommen sofort richtig oder falsch, und die Kamera fliegt mit Spotlight zur belegenden Karte. Am Ende steht „x von y richtig“.
