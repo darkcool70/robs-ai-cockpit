@@ -763,6 +763,12 @@ button.board-legend:hover { color: var(--b-ink); background: var(--b-fill); }
 .board-bubble::after { background: var(--b-glass-hi); border-color: var(--b-hair-hi); }
 .board-subtitle { background: var(--b-glass-hi); border-color: var(--b-hair-hi); color: var(--b-ink); text-shadow: none; box-shadow: var(--b-shadow-panel); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
 .board-subtitle-who { color: var(--b-link); }
+.board-speech-arrow path { fill: none; stroke: var(--sa); stroke-dasharray: 1; stroke-dashoffset: 1; filter: drop-shadow(0 0 6px color-mix(in srgb, var(--sa) 55%, transparent)); animation: board-speech-draw 0.55s cubic-bezier(0.3, 0.7, 0.2, 1) forwards, board-speech-fade 0.6s ease-in 2.1s forwards; }
+.board-speech-word { padding: 2px 9px; border-radius: 999px; font-size: 12px; font-weight: 600; white-space: nowrap; color: var(--sa); background: var(--b-glass-hi); border: 1px solid color-mix(in srgb, var(--sa) 45%, transparent); box-shadow: var(--b-shadow-panel); opacity: 0; animation: board-speech-word 2.7s ease forwards; }
+@keyframes board-speech-draw { to { stroke-dashoffset: 0; } }
+@keyframes board-speech-fade { to { opacity: 0; } }
+@keyframes board-speech-word { 0%, 15% { opacity: 0; } 25%, 78% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .board-speech-arrow path { animation: board-speech-fade 0.6s ease-in 2.1s forwards; stroke-dashoffset: 0; } }
 .board-layerbar { background: var(--b-glass-hi); border-color: var(--b-hair-hi); box-shadow: var(--b-shadow-panel); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); animation: msg-in 0.2s ease-out; scrollbar-width: none; }
 .board-layer { color: var(--b-ink2); transition: background 0.15s ease, color 0.15s ease; }
 .board-layer:hover { background: var(--b-fill); color: var(--b-ink); }

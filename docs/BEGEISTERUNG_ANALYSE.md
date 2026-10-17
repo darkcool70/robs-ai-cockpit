@@ -463,6 +463,7 @@ Austausch per PowerPoint und Zahlen zum Anfassen.
   - „Offenes“ verbindet den Röntgenblick mit Arbeit: Es zeigt offene Fragen und Wahlen, Unerledigtes, Hypothesen zwischen 15 und 85 % und Atlas' Aussagen und Zahlen ohne Beleg. Die Ausgangsfrage zählt nicht mehr, sobald es ein „Kurz gesagt“ gibt.
   - Auch als Palette-Befehl („Ebene: nur …“) und per Sprache („Zeig nur das Offene“).
   - Live: Am Kanzleien-Board zeigt „Offenes 8“ die unbelegten Zahlen, die Hypothese, die Frage, die Aufgabe und die unbelegte Empfehlung; Quelle, belegte Zahl und Erledigtes treten zurück.
+- [x] (18.10., live) **2.14 Pfeil beim Sprechen** (`speechArrow.ts` + Tests, `SpeechArrowLayer.tsx`): Nennt ein Satz zwei Karten und sagt, wie sie zusammenhängen („führt zu“, „verursacht“, „stützt“, „widerspricht“, „hängt ab von“, „weil“ in Gegenrichtung), zeichnet Atlas' Stift den Pfeil mit Bedeutung und lässt ihn nach 2,8 s verblassen. Ganz im Sinn von „Sinn statt Schema“: nur mit Beziehung im Satz oder einem Pfeil, den das Board schon hat, also nie ein Pfeil, nur weil zwei Karten in einem Satz stehen. Wechselt dabei die Folie, wartet der Pfeil, bis der Folientitel weg ist. Live: „Die Hardware kostet viel, weil kleine Kanzleien keine IT haben“ ergibt einen gelben Pfeil „verursacht“ von „Kleine Kanzleien“ zur Hardware.
 - [ ] 2.7 Skizze → sauber
 - [ ] 2.8 Mitdenker-Modus
 - [ ] 2.9 Teste mich
