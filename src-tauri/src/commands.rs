@@ -1539,6 +1539,31 @@ pub fn save_text_file(path: String, content: String) -> AppResult<()> {
     Ok(())
 }
 
+/// Write an Office file the user picked a location for: an exported deck (.pptx, base64).
+#[tauri::command(async)]
+pub fn save_office_file(app: AppHandle, path: String, data: String, open: bool) -> AppResult<()> {
+    use base64::Engine;
+    use tauri_plugin_opener::OpenerExt;
+    let p = PathBuf::from(&path);
+    let ext = p.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    if ext != "pptx" {
+        return Err(AppError::invalid("Only .pptx files"));
+    }
+    if data.len() > 80 * 1024 * 1024 {
+        return Err(AppError::invalid("The deck is too big"));
+    }
+    let bytes = base64::engine::general_purpose::STANDARD.decode(data.trim()).map_err(|_| AppError::invalid("Not a PowerPoint file"))?;
+    // a .pptx is a zip archive
+    if !bytes.starts_with(&[0x50, 0x4b, 0x03, 0x04]) {
+        return Err(AppError::invalid("Not a PowerPoint file"));
+    }
+    std::fs::write(&p, bytes)?;
+    if open {
+        app.opener().open_path(p.to_string_lossy(), None::<&str>).map_err(|e| AppError::other(e.to_string()))?;
+    }
+    Ok(())
+}
+
 /// Merge a task's worktree branch back into its project.
 #[tauri::command(async)]
 pub fn task_merge(state: State<AppState>, id: String) -> AppResult<crate::extras::MergeResult> {

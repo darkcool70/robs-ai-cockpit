@@ -441,7 +441,16 @@ Austausch per PowerPoint und Zahlen zum Anfassen.
   - **Sinn-Prüfung** (`boardSense.ts` + Tests): Atlas bekommt sofort Hinweise beim Zeichnen und im Board-Check. Gemeldet werden ein Pfeil zum eigenen Kapitel, „Teil von“ zu einem Kapitel (dann gehört die Karte hinein), „stützt“ in eine Quelle hinein, dieselbe Beziehung doppelt und eine Entscheidungskarte auf einem Board, das nichts entscheidet.
   - **Persona und Werkzeuge:** „Sinn statt Schema“ (keine erfundenen Optionen oder Schritte, eine Kernaussage ist eine Notiz, ein Pfeil nur, wenn „A verursacht B“ als Satz stimmt, Hypothesen nur für wirklich Offenes, Aufräumarbeit gehört in den Chat). Die Werkzeugtexte wirken sofort, die Persona ab dem nächsten Build.
   - Live: Das Tabby-Board liest sich jetzt *Worum es geht · Kern · Die vier Grundmuster · Genetik · Quellen · Weiterführend*. Info zeigt diese Reihenfolge samt Kapiteln.
-- [ ] 2.2 Export als PowerPoint
+- [x] (18.10., live) **2.2 Export als PowerPoint** (`deckPptx.ts` + Tests, pptxgenjs wird erst beim Export geladen, 368 KB). Aufbau des Decks:
+  - Titelfolie mit „Kurz gesagt“, dann das ganze Board als Bild.
+  - Danach je Abschnitt und Kapitel eine Folie in der Reihenfolge, in der sie stehen.
+  - Zahlen erscheinen groß. Diagramme und Tabellen sind echte PowerPoint-Objekte, Quellen sind Links.
+  - Ein einzelner Gedanke wird als Aussage-Folie gesetzt. Die Karten sind nur so hoch wie ihr Text und stehen leicht über der Mitte. Am Ende steht „Kurz gesagt“.
+  - Die Sprechernotizen enthalten jede Karte ganz, ihre Details und die Zusammenhänge („Genorte verursacht …“).
+  - Erreichbar über Dock › Präsentieren, die Palette und Atlas (`{"do":"pptx"}`).
+  - Neuer Rust-Befehl `save_office_file` (nur .pptx, prüft die ZIP-Signatur) mit Speichern-Dialog. Bis zum nächsten Build lädt die App die Datei über den Browser in „Downloads“; das wurde live geprüft.
+  - Live mit PowerPoint gerendert (9 Folien) und zweimal nachgebessert: Aussage-Folien statt leerer Riesenkarten, keine Lücken zwischen Titel und Text, die Frage selbst als Überschrift.
+  - Nebenbei: Die Präsentation erzählt Abschnitte und Kapitel jetzt in ihrer Reihenfolge auf dem Board.
 - [ ] 2.3 Das Board als Gespräch (zwei Stimmen)
 - [ ] 2.4 Probe-Publikum
 - [ ] 2.5 Lebende Zahlen mit Reglern

@@ -222,6 +222,7 @@ pub fn run() {
             commands::review_commit,
             commands::push_send,
             commands::save_text_file,
+            commands::save_office_file,
             commands::task_merge,
             commands::tests_run,
             commands::pins_list,

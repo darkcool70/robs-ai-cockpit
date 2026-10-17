@@ -681,6 +681,8 @@ export const api = {
   reviewCommit: (dir: string, message: string) => invoke<string>("review_commit", { dir, message }),
   pushSend: (url: string, title: string, message: string, priority?: string) => invoke<void>("push_send", { url, title, message, priority }),
   saveTextFile: (path: string, content: string) => invoke<void>("save_text_file", { path, content }),
+  /** an exported deck (.pptx as base64) where the user chose to save it */
+  saveOfficeFile: (path: string, data: string, open = true) => invoke<void>("save_office_file", { path, data, open }),
   taskMerge: (id: string) => invoke<MergeResult>("task_merge", { id }),
   testsRun: (dir: string, command: string, timeoutSec?: number) => invoke<TestRun>("tests_run", { dir, command, timeoutSec }),
   pinsList: () => invoke<Pin[]>("pins_list"),
