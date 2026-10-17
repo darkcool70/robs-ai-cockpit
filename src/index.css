@@ -769,6 +769,12 @@ button.board-legend:hover { color: var(--b-ink); background: var(--b-fill); }
 @keyframes board-speech-fade { to { opacity: 0; } }
 @keyframes board-speech-word { 0%, 15% { opacity: 0; } 25%, 78% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .board-speech-arrow path { animation: board-speech-fade 0.6s ease-in 2.1s forwards; stroke-dashoffset: 0; } }
+.board-formula { color: var(--b-ink3); }
+.board-formula-err { color: var(--b-orange); }
+.board-num-slider { -webkit-appearance: none; appearance: none; height: 4px; border-radius: 999px; background: color-mix(in srgb, var(--b-accent) 28%, var(--b-fill)); cursor: ew-resize; outline: none; }
+.board-num-slider::-webkit-slider-thumb { -webkit-appearance: none; appearance: none; width: 15px; height: 15px; border-radius: 50%; background: #fff; border: 2px solid var(--b-accent); box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35); transition: transform 0.12s ease; }
+.board-num-slider:hover::-webkit-slider-thumb, .board-num-slider:active::-webkit-slider-thumb { transform: scale(1.15); }
+.board-num-slider:focus-visible { box-shadow: 0 0 0 2px var(--b-accent); }
 .board-layerbar { background: var(--b-glass-hi); border-color: var(--b-hair-hi); box-shadow: var(--b-shadow-panel); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); animation: msg-in 0.2s ease-out; scrollbar-width: none; }
 .board-layer { color: var(--b-ink2); transition: background 0.15s ease, color 0.15s ease; }
 .board-layer:hover { background: var(--b-fill); color: var(--b-ink); }

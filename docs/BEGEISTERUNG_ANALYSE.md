@@ -457,7 +457,11 @@ Austausch per PowerPoint und Zahlen zum Anfassen.
   - Das Gespräch entsteht ohne Kontingent aus dem Board; Atlas kann es auch selbst schreiben (`{"do":"talk","lines":[…]}`, über das act-Werkzeug sofort nutzbar).
   - Neu in tts.ts: `prepareSpeech`. Die nächste Zeile entsteht, während die aktuelle läuft. Live gemessen dauert der Start 0,5 s statt 3 s, Frage und Antwort folgen fast ohne Pause, Esc beendet. In der Testinstanz gibt es nur Thorsten, deshalb hat Rob die zweite Stimme noch nicht gehört.
 - [ ] 2.4 Probe-Publikum
-- [ ] 2.5 Lebende Zahlen mit Reglern
+- [x] (18.10., live) **2.5 Lebende Zahlen mit Reglern** (`liveNumbers.ts` + Tests, StatBody/NumberSlider):
+  - Zahl-Karten können eine Formel über andere Karten haben (`[[id]]` oder ihre Namen, „käufe * warenkorb“). `recalc` rechnet nach jeder Änderung in Abhängigkeitsreihenfolge, schreibt den Wert im Stil der Karte (Einheit, %, Mio, sinnvolle Nachkommastellen) und benennt Schleifen oder unbekannte Namen.
+  - Eingaben bekommen einen Regler, dessen Bereich am Startwert verankert bleibt. Ein Zug ist ein Rückgängig-Schritt, berechnete Zahlen gleiten zum neuen Wert.
+  - Die Formel steht in Worten auf der Karte, Info zeigt die Rechnung, der Röntgenblick sagt „berechnet“. Atlas modelliert Rechnungen, statt Ergebnisse hinzuschreiben (Werkzeug sofort, Persona ab dem nächsten Build).
+  - Live: Quote 2,4 % → 3 % ergibt Käufe 912 → 1.140 und Umsatz 49.248 € → 61.560 €.
 - [x] (18.10., live) **2.6 Ebenen und Filter** (`layers.ts` + Tests, `LayerBar.tsx`):
   - L oder Ansicht › Ebenen öffnet eine Leiste über dem Dock mit Kartenzahl je Ebene. Leere Ebenen bleiben weg, was nicht passt, tritt zurück (ohne Ring), Esc stellt alles wieder her.
   - „Offenes“ verbindet den Röntgenblick mit Arbeit: Es zeigt offene Fragen und Wahlen, Unerledigtes, Hypothesen zwischen 15 und 85 % und Atlas' Aussagen und Zahlen ohne Beleg. Die Ausgangsfrage zählt nicht mehr, sobald es ein „Kurz gesagt“ gibt.
