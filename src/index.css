@@ -785,6 +785,11 @@ button.board-legend:hover { color: var(--b-ink); background: var(--b-fill); }
 .board-round-new { color: var(--b-green); font-weight: 600; }
 .board-round-changed { color: var(--b-orange); font-weight: 600; }
 .board-round-removed { color: var(--b-red, #ff453a); font-weight: 600; }
+.board-quiz { background: var(--b-glass-hi); border-color: var(--b-hair-hi); box-shadow: var(--b-shadow-panel); -webkit-backdrop-filter: blur(24px); backdrop-filter: blur(24px); animation: msg-in 0.22s ease-out; }
+.board-quiz-option { border-color: var(--b-hair-hi); background: var(--b-card-hi); color: var(--b-ink); transition: border-color 0.15s ease, background 0.15s ease, opacity 0.2s ease; }
+.board-quiz-option:not(:disabled):hover { border-color: var(--b-accent); }
+.board-quiz-option.is-right { border-color: var(--b-green); background: color-mix(in srgb, var(--b-green) 14%, var(--b-card-hi)); color: var(--b-green); font-weight: 600; }
+.board-quiz-option.is-wrong { border-color: var(--b-orange); background: color-mix(in srgb, var(--b-orange) 12%, var(--b-card-hi)); color: var(--b-orange); }
 .board-layerbar { background: var(--b-glass-hi); border-color: var(--b-hair-hi); box-shadow: var(--b-shadow-panel); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); animation: msg-in 0.2s ease-out; scrollbar-width: none; }
 .board-layer { color: var(--b-ink2); transition: background 0.15s ease, color 0.15s ease; }
 .board-layer:hover { background: var(--b-fill); color: var(--b-ink); }
