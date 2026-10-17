@@ -762,6 +762,9 @@ button.board-legend:hover { color: var(--b-ink); background: var(--b-fill); }
 .board-bubble { background: var(--b-glass-hi); border: 1px solid var(--b-hair-hi); color: var(--b-ink); box-shadow: var(--b-shadow-hi); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
 .board-bubble::after { background: var(--b-glass-hi); border-color: var(--b-hair-hi); }
 .board-subtitle { background: var(--b-glass-hi); border-color: var(--b-hair-hi); color: var(--b-ink); text-shadow: none; box-shadow: var(--b-shadow-panel); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
+.board-subtitle-who { color: var(--b-link); }
+.board-subtitle-who.is-guest { color: #bf5af2; }
+:root[data-theme="light"] .board-subtitle-who.is-guest { color: #8944ab; }
 .board-slide-title { background: radial-gradient(ellipse at center, color-mix(in srgb, var(--b-canvas) 90%, transparent) 0%, color-mix(in srgb, var(--b-canvas) 60%, transparent) 45%, transparent 80%); }
 .board-spot-veil { background: radial-gradient(ellipse at center, transparent 30%, color-mix(in srgb, var(--b-canvas) 60%, transparent) 100%); }
 .board-cursor { filter: none; }

@@ -451,7 +451,11 @@ Austausch per PowerPoint und Zahlen zum Anfassen.
   - Neuer Rust-Befehl `save_office_file` (nur .pptx, prüft die ZIP-Signatur) mit Speichern-Dialog. Bis zum nächsten Build lädt die App die Datei über den Browser in „Downloads“; das wurde live geprüft.
   - Live mit PowerPoint gerendert (9 Folien) und zweimal nachgebessert: Aussage-Folien statt leerer Riesenkarten, keine Lücken zwischen Titel und Text, die Frage selbst als Überschrift.
   - Nebenbei: Die Präsentation erzählt Abschnitte und Kapitel jetzt in ihrer Reihenfolge auf dem Board.
-- [ ] 2.3 Das Board als Gespräch (zwei Stimmen)
+- [x] (18.10., live) **2.3 Das Board als Gespräch** (`boardTalk.ts` + Tests): Ein Gast fragt pro Abschnitt, was ein Zuhörer fragen würde, Atlas antwortet mit den Karten ([[id]] vorn, die Kamera folgt), am Ende kommt „Wenn ich mir nur eins merke?“ mit dem Ergebnis.
+  - Die Gaststimme ist eine zweite installierte Stimme, die anders klingt: das andere Geschlecht, dieselbe Engine, nie ungefragt eine Bezahlstimme aus der Cloud. Fehlt eine, spricht Atlas' Stimme etwas höher.
+  - Die Untertitel zeigen den Namen des Sprechers. Ohne Ton laufen sie in Lesegeschwindigkeit.
+  - Das Gespräch entsteht ohne Kontingent aus dem Board; Atlas kann es auch selbst schreiben (`{"do":"talk","lines":[…]}`, über das act-Werkzeug sofort nutzbar).
+  - Neu in tts.ts: `prepareSpeech`. Die nächste Zeile entsteht, während die aktuelle läuft. Live gemessen dauert der Start 0,5 s statt 3 s, Frage und Antwort folgen fast ohne Pause, Esc beendet. In der Testinstanz gibt es nur Thorsten, deshalb hat Rob die zweite Stimme noch nicht gehört.
 - [ ] 2.4 Probe-Publikum
 - [ ] 2.5 Lebende Zahlen mit Reglern
 - [ ] 2.6 Ebenen und Filter

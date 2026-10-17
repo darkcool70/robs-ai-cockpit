@@ -487,6 +487,34 @@ export function speak(text: string, opts: SpeakOptions = {}) {
   }
 }
 
+/** Sentences made ahead (a conversation's next line), by voice, speed, style and words — used once. */
+const warm = new Map<string, Promise<ArrayBuffer>>();
+const warmKey = (text: string, voice: string, speed: number, style: string | undefined, l: SpeechLang) => `${voice}|${speed.toFixed(3)}|${style ?? ""}|${l}|${text}`;
+
+/**
+ * Make the first sentence of what will be said next while something else is still speaking, so it
+ * starts without a pause (two voices in a conversation). Same voice and pitch rules as `speak`.
+ */
+export function prepareSpeech(text: string, opts: Pick<SpeakOptions, "voice" | "pitch" | "sessionId"> = {}) {
+  if (outputMuted() || !neural?.engineInstalled) return;
+  const mine = voiceOf(opts.sessionId);
+  const voice = neuralVoice(opts.voice ?? mine.voice);
+  if (!voice) return;
+  const parts = splitSentences(text.trim()).filter((p) => withoutMarkers(p).trim());
+  if (!parts.length) return;
+  const l = detectLang(withoutMarkers(parts[0])) ?? detectLang(withoutMarkers(text)) ?? lang();
+  const v = voiceForLang(voice, l, neural?.voices ?? [], useApp.getState().settings);
+  const pitch = clampPitch((opts.pitch != null ? clampPitch(opts.pitch) : mine.pitch) * v.pitch);
+  const style = styleFor(v.voice, moodOf(text));
+  const words = withoutMarkers(parts[0]);
+  const key = warmKey(words, v.voice, rate() / pitch, style, l);
+  if (warm.has(key)) return;
+  const made = synth(words, v.voice, rate() / pitch, style, l);
+  made.catch(() => warm.delete(key));
+  warm.set(key, made);
+  while (warm.size > 6) warm.delete(warm.keys().next().value!);
+}
+
 async function speakNeural(text: string, voice: string, fx: VoiceFx, id: number, mark: (part: string) => void = () => {}, pitch = 1, at: (parts: string[], i: number) => void = () => {}): Promise<boolean> {
   const c = audioContext();
   await c.resume().catch(() => {});
@@ -499,7 +527,14 @@ async function speakNeural(text: string, voice: string, fx: VoiceFx, id: number,
     const v = voiceForLang(voice, l, neural?.voices ?? [], useApp.getState().settings);
     return { voice: v.voice, pitch: clampPitch(pitch * v.pitch), lang: l };
   });
-  const make = (i: number) => synth(withoutMarkers(parts[i]), plan[i].voice, rate() / plan[i].pitch, styleFor(plan[i].voice, mood), plan[i].lang).then((ab) => c.decodeAudioData(ab));
+  const make = (i: number) => {
+    const words = withoutMarkers(parts[i]), style = styleFor(plan[i].voice, mood), speed = rate() / plan[i].pitch;
+    // made ahead (prepareSpeech): taken once
+    const key = warmKey(words, plan[i].voice, speed, style, plan[i].lang);
+    const ahead = warm.get(key);
+    if (ahead) warm.delete(key);
+    return (ahead ?? synth(words, plan[i].voice, speed, style, plan[i].lang)).then((ab) => c.decodeAudioData(ab));
+  };
   let next: Promise<AudioBuffer> | null = parts.length ? make(0) : null;
   for (let i = 0; i < parts.length && next; i++) {
     const buf = await next;
