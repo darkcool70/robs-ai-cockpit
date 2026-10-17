@@ -579,7 +579,7 @@ nimmt eine ganze Atlas-Runde zurück.
   - [x] (17.10.) **Überblick** bis 60 % (`FAR_K` 0.42 → 0.6): Gesicht je Familie (`farFace.ts` + Tests, `cards/FarFace.tsx`) — Zahl mit „was sie misst“, Seite mit Bild und Website, Aufgabe ✓/◐/○, Agent arbeitet/wartet/Fehler/fertig, Auswahl „→ gewählt“ bzw. „N Optionen“, Hypothese „70 % · 2 dafür · 1 dagegen“, Änderungen/Tabelle/Suche mit Mengen
   - [x] (17.10.) **Quick Look im Überblick** (`FarPeek`): Zeiger ruht auf einer Karte → ganzer Titel, Zustand und erster Satz in Lesegröße (eigener Store, das Board zeichnet dafür nicht neu)
   - [ ] Plakat-Stufe unter 30 % (Abschnitt als Plakat mit Schlüsselzahl), Überblendung 150 ms, Diagramm ohne Achsen
-- [ ] Große Ansicht per Leertaste, die Seite und „Hineinzoomen“ vereint
+- [x] (17.10.) Große Ansicht per Leertaste, die Seite und „Hineinzoomen“ vereint: Leertaste öffnet die ausgewählte Karte (im Überblick die unter dem Zeiger) groß mit ihren Belegen ringsum, Leertaste schließt; Textkarten zeigen dort den ganzen Text und die Details. Die Ansicht nimmt die Form der Board-Fläche an (`zoomFit`, mindestens 90 % statt vorher 67 % neben dem Chat), die Mitte ist so hoch wie ihr Text, eingehende Pfeile lesen sich von der Karte aus („kommt von“, „verursacht durch“). Offen: Übergang „wächst aus ihrem Platz“ (Federn, Phase 5)
 - [x] (17.10.) Verbinder mit Fokus und Kontext (`focus.ts` + Tests): Pfeile der ausgewählten Karte in Akzentfarbe mit ihrem Wort (stützt, verursacht …), verbundene Karten bleiben klar, der Rest tritt zurück
 
 **Fertig, wenn:** In der Gesamtansicht bei 1442×920 sind alle Zahlen, Seitenbilder und

@@ -16,6 +16,7 @@ All notable changes to this project are documented here. The format follows
 - **Sticky section headings:** zoomed in, a section's heading stays at the top while its cards are on screen.
 - **Selection bar and card menu:** a selected card gets a small bar (Ask · Agent · Large · ⋯); everything else is in the card menu (⋯ or right-click). The 8-button bar that appeared when hovering is gone.
 - **A readable overview (Board 3.0, Pro):** below 60 % zoom every card shows its face in „Fernschrift“ — never under 11 px on screen, as large as the card allows: a number card its number and what it measures, a page its picture and site, a task ✓ / ◐ / ○, an agent whether it works, waits for you or failed, a choice what was picked, a hypothesis how sure it is. Resting the pointer on a card in the overview shows its whole title, state and first sentence at reading size.
+- **Space opens a card large** (like Quick Look): the selected card — or, in the overview, the card under the pointer — with its evidence around it and, for notes, its whole text and details; Space closes it again. The big view now fits the board area instead of shrinking (next to the chat its text was about 9 px).
 - **Focus and context:** select a card and its arrows light up in the accent colour with what they mean („stützt“, „verursacht“ …), the cards they reach stay clear and everything else steps back.
 
 ### Changed
@@ -28,6 +29,7 @@ All notable changes to this project are documented here. The format follows
 - The placeholder „Atlas bereitet vor …“ stays until Atlas' first real card (the pinned question no longer ends it) and keeps clear of the board's title.
 - Permission notes read „Atlas braucht deine Freigabe für die Websuche“; the header and the capsule say „Braucht dich“ and stop the moment you answer; after an answer the header says „Bereit“.
 - Card names in older answers no longer go blank after switching boards; long messages to Atlas are kept in full (up to 2,000 characters) instead of being cut at 300.
+- In the big view an arrow pointing at the card reads from the card („kommt von Zusatzkosten“) instead of „führt zu“ over the card it comes from; long titles wrap instead of being cut.
 - Camera moves no longer hang while the window is in the background (they go straight to the target); section names in the overview share one size.
 
 ## [0.4.1] - 2026-10-14
