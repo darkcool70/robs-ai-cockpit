@@ -637,6 +637,11 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
 .board-arrowhead { fill: var(--b-edge-hi); }
 .board-edge-label { border-color: var(--b-hair-hi); background: var(--b-card); color: var(--b-ink2); font-weight: 500; box-shadow: var(--b-shadow-xs); }
 .board-edge-handle { border-color: var(--b-hair-hi); background: var(--b-card); }
+/* focus and context (Board 3.0): the selected card's arrows in the accent, what it is not connected with steps back */
+.board-edge-focus .board-edge { stroke-width: 2.25; }
+.board-edge-focus .board-edge:not(.board-edge-for):not(.board-edge-against):not(.board-edge-live) { stroke: var(--b-accent); }
+.board-edge-focus .board-edge-label { border-color: color-mix(in srgb, var(--b-accent) 45%, transparent); color: var(--b-ink); }
+.board-recede { opacity: 0.4; }
 /* frames are chapters: a soft surface, a clear title */
 .board-frame { background: var(--b-lane); border: 1px solid var(--b-hair) !important; border-radius: 22px; }
 .board-frame-title { color: var(--b-ink) !important; font-size: 15px; letter-spacing: -0.01em; padding: 14px 20px 8px; }
