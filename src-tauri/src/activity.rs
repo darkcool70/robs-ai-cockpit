@@ -42,6 +42,24 @@ pub fn clean_prompt(s: &str) -> String {
     PASTE_TAG.replace_all(s, "").into_owned()
 }
 
+/// A prompt as the timeline keeps it: the user's words in full (up to 2000 characters), an operator's
+/// cockpit snapshot after them only with its first line (it names the open board; the rest is for the AI).
+pub fn prompt_excerpt(p: &str) -> String {
+    let p = clean_prompt(p);
+    let (yours, snap) = match p.find("[📡 Cockpit") {
+        Some(i) => (&p[..i], Some(&p[i..])),
+        None => (p.as_str(), None),
+    };
+    let mut out = excerpt(yours, 2000);
+    if let Some(first) = snap.and_then(|s| s.lines().next()) {
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(&excerpt(first, 200));
+    }
+    out
+}
+
 /// First `n` characters, whitespace collapsed.
 pub fn excerpt(s: &str, n: usize) -> String {
     let flat = s.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -131,7 +149,7 @@ pub fn codex_activity(line: &str, ts: i64, cwd: Option<&str>) -> Vec<Activity> {
         }
         ("event_msg", "user_message") => {
             if let Some(m) = p.get("message").and_then(|x| x.as_str()) {
-                out.push(Activity::new(ts, "prompt", excerpt(&clean_prompt(m), 300), None));
+                out.push(Activity::new(ts, "prompt", prompt_excerpt(m), None));
             }
         }
         ("event_msg", "item_completed") => {
@@ -147,7 +165,7 @@ pub fn codex_activity(line: &str, ts: i64, cwd: Option<&str>) -> Vec<Activity> {
                     .join(" ");
                 // Codex also records injected context as user items; keep real prompts only.
                 if !text.trim().is_empty() && !text.trim_start().starts_with('<') {
-                    out.push(Activity::new(ts, "prompt", excerpt(&text, 300), None));
+                    out.push(Activity::new(ts, "prompt", prompt_excerpt(&text), None));
                 }
             }
         }
@@ -467,6 +485,18 @@ pub fn prune(c: &Connection, now_ms: i64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_prompt_keeps_the_users_words_and_the_snapshots_first_line() {
+        let long = "Wort ".repeat(100);
+        let p = format!("{long}\n[📡 Cockpit 17.10. 14:02 · project Claude · board “Zugspitze”\nAgents: none running\nAccounts: Claude A");
+        let e = prompt_excerpt(&p);
+        assert!(e.starts_with("Wort Wort"));
+        assert!(e.len() > 450, "the user's 500 characters stay");
+        assert!(e.ends_with("· board “Zugspitze”"));
+        assert!(!e.contains("Agents:"));
+        assert_eq!(prompt_excerpt("Fix the test"), "Fix the test");
+    }
 
     #[test]
     fn codex_commentary_is_its_interim_sentence() {

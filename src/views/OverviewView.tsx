@@ -680,7 +680,7 @@ function Timeline({ items }: { items: TimelineItem[] }) {
           <span className="text-muted">{sessions[a.sessionId]?.name ?? a.sessionName ?? "session"}</span>{" "}
           <span className={cx(KIND_STYLE[a.kind] ?? "text-muted")}>
             {a.kind === "prompt" ? "▸ " : a.kind === "done" ? "✓ " : a.kind === "input" ? "⚠ " : a.kind === "error" ? "✗ " : ""}
-            {a.kind === "done" ? (a.text ? a.text.slice(0, 140) + (a.text.length > 140 ? "…" : "") : "finished") : a.text}
+            {a.kind === "done" ? (a.text ? a.text.slice(0, 140) + (a.text.length > 140 ? "…" : "") : "finished") : a.kind === "prompt" ? a.text.slice(0, 140) + (a.text.length > 140 ? "…" : "") : a.text}
           </span>
         </li>
       ))}

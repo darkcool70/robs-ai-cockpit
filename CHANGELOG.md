@@ -22,6 +22,10 @@ All notable changes to this project are documented here. The format follows
 - The tool chips under an answer and the line under Atlas' name say what Atlas does with the board („legt Karten an“, „prüft das Board“); section headings in the overview shrink to fit instead of being cut; the „Done / Verified / Next“ footer is recognised even when sources follow it.
 
 ### Fixed
+- Atlas puts short answers on the board too (a few cards and „Kurz gesagt“) instead of a Markdown table in the chat; tables in chat answers render as tables.
+- The placeholder „Atlas bereitet vor …“ stays until Atlas' first real card (the pinned question no longer ends it) and keeps clear of the board's title.
+- Permission notes read „Atlas braucht deine Freigabe für die Websuche“; the header and the capsule say „Braucht dich“ and stop the moment you answer; after an answer the header says „Bereit“.
+- Card names in older answers no longer go blank after switching boards; long messages to Atlas are kept in full (up to 2,000 characters) instead of being cut at 300.
 - Camera moves no longer hang while the window is in the background (they go straight to the target); section names in the overview share one size.
 
 ## [0.4.1] - 2026-10-14

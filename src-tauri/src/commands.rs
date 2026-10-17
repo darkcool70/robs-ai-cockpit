@@ -1317,9 +1317,22 @@ pub fn pty_screen(state: State<AppState>, id: String) -> AppResult<String> {
 }
 
 #[tauri::command(async)]
-pub fn pty_write(state: State<AppState>, id: String, data: String) -> AppResult<()> {
+pub fn pty_write(app: AppHandle, state: State<AppState>, id: String, data: String) -> AppResult<()> {
     let h = state.pty.get(&id).ok_or_else(|| AppError::invalid("session is not running"))?;
-    h.write(data.as_bytes())
+    h.write(data.as_bytes())?;
+    // an answer to a permission request (picked in the chat or typed in the terminal): "needs you" goes at once,
+    // not only when the tool reports back
+    let view = state.runtimes.lock().get_mut(&id).and_then(|rt| {
+        let asks = rt.view.notice.as_deref().is_some_and(|n| n.to_lowercase().contains("permission"));
+        asks.then(|| {
+            rt.view.notice = None;
+            rt.view.clone()
+        })
+    });
+    if let Some(v) = view {
+        let _ = app.emit("session-runtime", &v);
+    }
+    Ok(())
 }
 
 #[tauri::command(async)]

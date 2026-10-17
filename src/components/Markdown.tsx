@@ -1,6 +1,7 @@
-// Just enough Markdown for agent answers in chat bubbles: code fences, headings, lists,
+// Just enough Markdown for agent answers in chat bubbles: code fences, headings, lists, tables,
 // **bold**, `code`. Builds React nodes (never innerHTML), so agent text cannot inject markup.
 import type { ReactNode } from "react";
+import { isTableLine, parseTable } from "../lib/mdTable";
 
 /** `[[id]]` references to things outside the text (board cards): their name, and what a click does. */
 export interface MdRefs {
@@ -59,8 +60,41 @@ export function Markdown({ text, refs }: { text: string; refs?: MdRefs }) {
       if (list.length) blocks.push(<ul key={k} className="my-1 list-disc space-y-0.5 pl-5">{list}</ul>);
       list = [];
     };
-    part.split("\n").forEach((line, li) => {
+    const lines = part.split("\n");
+    // a table's lines, gathered while they come (rendered when the table ends)
+    let table: string[] = [];
+    const flushTable = (k: string) => {
+      const t = table.length ? parseTable(table) : null;
+      if (t) {
+        blocks.push(
+          <div key={k} className="my-1.5 overflow-x-auto">
+            <table className="w-full border-collapse text-[12.5px] leading-snug">
+              {t.head && (
+                <thead>
+                  <tr>{t.head.map((c, i) => <th key={i} className={`border-b border-line-strong px-2 py-1 font-semibold ${t.right[i] ? "text-right" : "text-left"}`}>{inline(c, `${k}h${i}`, refs)}</th>)}</tr>
+                </thead>
+              )}
+              <tbody>
+                {t.rows.map((r, ri) => (
+                  <tr key={ri} className="border-b border-line last:border-0">
+                    {r.map((c, i) => <td key={i} className={`px-2 py-1 align-top ${t.right[i] ? "text-right tabular-nums" : ""}`}>{inline(c, `${k}r${ri}c${i}`, refs)}</td>)}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>,
+        );
+      } else for (const [i, l] of table.entries()) blocks.push(<p key={`${k}-${i}`}>{inline(l, `${k}-${i}`, refs)}</p>);
+      table = [];
+    };
+    lines.forEach((line, li) => {
       const k = `${pi}-${li}`;
+      if (isTableLine(line)) {
+        flush(`l${k}`);
+        table.push(line);
+        return;
+      }
+      if (table.length) flushTable(`t${k}`);
       const bullet = line.match(/^\s*(?:[-*•]|\d+\.)\s+(.*)$/);
       if (bullet) {
         list.push(<li key={k}>{inline(bullet[1], k, refs)}</li>);
@@ -73,6 +107,7 @@ export function Markdown({ text, refs }: { text: string; refs?: MdRefs }) {
       else blocks.push(<div key={k} className="h-1.5" />);
     });
     flush(`l${pi}-end`);
+    if (table.length) flushTable(`t${pi}-end`);
   });
   return <div className="text-[13px] leading-relaxed break-words">{blocks}</div>;
 }

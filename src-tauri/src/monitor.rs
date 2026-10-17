@@ -487,7 +487,7 @@ fn claude_activity(rt: &mut Runtime, v: &Value, event: &str, ts: i64) {
             let p = v
                 .get("prompt")
                 .and_then(|x| x.as_str())
-                .map(|p| excerpt(&crate::activity::clean_prompt(p), 300))
+                .map(crate::activity::prompt_excerpt)
                 .unwrap_or_else(|| "Prompt submitted".into());
             apply_activity(rt, Activity::new(ts, "prompt", p, None));
         }
@@ -705,7 +705,7 @@ fn poll_copilot(rt: &mut Runtime, claimed: &[PathBuf]) {
                 rt.rollout_last = Some((true, ts));
                 rt.turn_error = None;
                 rt.copilot_answer = None;
-                apply_activity(rt, Activity::new(ts, "prompt", excerpt(&crate::activity::clean_prompt(&p), 300), None));
+                apply_activity(rt, Activity::new(ts, "prompt", crate::activity::prompt_excerpt(&p), None));
             }
             Event::Working => {
                 rt.rollout_last = Some((true, ts));
