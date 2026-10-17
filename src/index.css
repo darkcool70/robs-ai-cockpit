@@ -647,6 +647,8 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
 .board-lane-no { font-size: 13px; font-weight: 600; color: var(--b-ink3); font-variant-numeric: tabular-nums; }
 .board-lane-title { min-width: 0; font-size: 19px; font-weight: 600; letter-spacing: -0.015em; color: var(--b-ink); }
 .board-lane-count { font-size: 13px; color: var(--b-ink3); font-variant-numeric: tabular-nums; }
+/* a section's heading kept at the top while its cards are on screen (Board 3.0) */
+.board-sticky-head { padding: 4px 11px; border-radius: 10px; border: 1px solid var(--b-hair-hi); background: var(--b-glass-hi); box-shadow: var(--b-shadow); backdrop-filter: blur(14px); font-size: 14px; font-weight: 600; letter-spacing: -0.01em; color: var(--b-ink); white-space: nowrap; }
 .board-lane-empty { margin-top: 26px; font-size: 12.5px; color: var(--b-ink3); }
 .board-lane-far { font-weight: 700; letter-spacing: -0.01em; color: var(--b-ink2); white-space: nowrap; }
 /* the board's title block (Board 3.0): a document heading on the board */

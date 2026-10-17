@@ -563,8 +563,8 @@ nimmt eine ganze Atlas-Runde zurück.
 - [x] (16./17.10.) Titelblock mit „Kurz gesagt“ im Board; die Legende wandert nach „Info“ (alte „Was du siehst“-Tafel und Zoomleiste entfernt)
 - [x] (17.10.) Inspektor „Info“ rechts (Karte: Art, Abschnitt, Text, Details, Herkunft, Quelle, Verbindungen als Satz, Schlagwörter; ohne Auswahl: Board, Abschnitte, Legende); „Crew“ fasst Mission und Terminal zusammen — `InfoPanel.tsx`, `roomSide.ts`
 - [x] (17.10.) Auswahl-Leiste (Fragen · Agent · Groß · ⋯; bei der obersten Karte eines Abschnitts unter der Karte) und Kartenmenü per ⋯ oder Rechtsklick; keine Leiste beim Darüberfahren — `CardMenu.tsx`
-- [ ] Klebende Abschnittsköpfe
-- [ ] Eine Statuskapsel statt verstreuter Hinweise; Aktionen als Knöpfe, Einstellungen als Schalter
+- [x] (17.10.) Klebende Abschnittsköpfe (`stickyLanes` in `BoardLanes.tsx` + Tests)
+- [x] (17.10.) Eine Statuskapsel oben in der Mitte (Plan, Schritt oder was Atlas tut); „1 ausgewählt“ steht jetzt über dem Eingabefeld mit „Aufheben“; die Statuspillen unten rechts sind weg. Aktionen als Knöpfe, Einstellungen als Schalter galt schon im Menüband/Dock.
 
 **Fertig, wenn:** Es gibt drei dauerhafte Bedienflächen, kein Kopf und keine Karte ist verdeckt
 (Test), und alle bisherigen Funktionen sind erreichbar (Test über die Befehlspalette).
