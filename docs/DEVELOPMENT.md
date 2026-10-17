@@ -37,6 +37,16 @@ testing so your real `~/.ai-cockpit` is untouched.
 `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS=--remote-debugging-port=9229` exposes the WebView over CDP
 on localhost (dev only). `window.__TAURI_INTERNALS__.invoke(cmd, args)` calls backend commands.
 
+### UI changes without a Rust build
+
+A frontend-only change does not need a new exe: build the frontend and let a running test instance
+load it over CDP (it intercepts `http://tauri.localhost/*` and serves `./dist`; the backend stays the
+compiled one). Keep the script running; reload the page after the next `vite build`.
+
+```sh
+pnpm exec vite build && node scripts/hotswap.mjs 9230
+```
+
 ## Layout
 
 ```

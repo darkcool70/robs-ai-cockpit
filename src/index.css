@@ -435,6 +435,8 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
 .board-cluster-count { font-weight: 600; color: rgba(255, 255, 255, 0.55); }
 .board-cluster-label.board-cluster-new .board-cluster-count { color: #7dd3fc; }
 .board-far-face { transition: opacity 0.4s ease; }
+/* the overview's Quick Look (FarPeek): fades in over the card it describes */
+.board-peek { animation: board-fade 0.14s ease both; }
 .board-clustered.board-far > .board-far-face { opacity: 0.28; }
 .board-zoomin { animation: board-fade 0.25s ease both; }
 .board-zoomin-center { animation: board-zoomin-center 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) both; box-shadow: 0 20px 70px rgba(0, 0, 0, 0.6), 0 0 40px color-mix(in srgb, var(--nc) 22%, transparent); }
