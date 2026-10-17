@@ -15,6 +15,8 @@ All notable changes to this project are documented here. The format follows
 - **„Info“ next to the chat:** the inspector — for a selected card its kind, section, text, details, origin, source, connections (as sentences) and tags; with nothing selected the board: its result, its sections (a click goes there) and the legend. **„Crew“** holds the agents and the terminal.
 - **Sticky section headings:** zoomed in, a section's heading stays at the top while its cards are on screen.
 - **Selection bar and card menu:** a selected card gets a small bar (Ask · Agent · Large · ⋯); everything else is in the card menu (⋯ or right-click). The 8-button bar that appeared when hovering is gone.
+- **A readable overview (Board 3.0, Pro):** below 60 % zoom every card shows its face in „Fernschrift“ — never under 11 px on screen, as large as the card allows: a number card its number and what it measures, a page its picture and site, a task ✓ / ◐ / ○, an agent whether it works, waits for you or failed, a choice what was picked, a hypothesis how sure it is. Resting the pointer on a card in the overview shows its whole title, state and first sentence at reading size.
+- **Focus and context:** select a card and its arrows light up in the accent colour with what they mean („stützt“, „verursacht“ …), the cards they reach stay clear and everything else steps back.
 
 ### Changed
 - One status capsule at the top centre shows what Atlas is doing (its plan, the step, „denkt nach …“); the note about selected cards stands above the message field, with „Aufheben“.

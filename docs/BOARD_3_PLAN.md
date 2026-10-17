@@ -575,8 +575,12 @@ nimmt eine ganze Atlas-Runde zurück.
 - [ ] Größen S, M und L im Raster, Höhe nach Inhalt
 - [ ] Die neuen Schlüsselkarten: Zahl, Diagramm, Seite, Agent, Änderungen, Hypothese, Entscheidung
 - [ ] Vier Zoomstufen mit Fernschrift und Überblendung; Abschnitte als Plakate
+  - [x] (17.10.) **Fernschrift** (`farText.ts` + Tests): nie unter 11 px auf dem Bildschirm, bricht Wort für Wort wie der Browser (ein langes Wort verkleinert die Schrift statt abgeschnitten zu werden), Werte bleiben einzeilig; eine ruhige Schriftskala (Titel bis 18 px, Werte größer, kein Symbol)
+  - [x] (17.10.) **Überblick** bis 60 % (`FAR_K` 0.42 → 0.6): Gesicht je Familie (`farFace.ts` + Tests, `cards/FarFace.tsx`) — Zahl mit „was sie misst“, Seite mit Bild und Website, Aufgabe ✓/◐/○, Agent arbeitet/wartet/Fehler/fertig, Auswahl „→ gewählt“ bzw. „N Optionen“, Hypothese „70 % · 2 dafür · 1 dagegen“, Änderungen/Tabelle/Suche mit Mengen
+  - [x] (17.10.) **Quick Look im Überblick** (`FarPeek`): Zeiger ruht auf einer Karte → ganzer Titel, Zustand und erster Satz in Lesegröße (eigener Store, das Board zeichnet dafür nicht neu)
+  - [ ] Plakat-Stufe unter 30 % (Abschnitt als Plakat mit Schlüsselzahl), Überblendung 150 ms, Diagramm ohne Achsen
 - [ ] Große Ansicht per Leertaste, die Seite und „Hineinzoomen“ vereint
-- [ ] Verbinder mit Fokus und Kontext
+- [x] (17.10.) Verbinder mit Fokus und Kontext (`focus.ts` + Tests): Pfeile der ausgewählten Karte in Akzentfarbe mit ihrem Wort (stützt, verursacht …), verbundene Karten bleiben klar, der Rest tritt zurück
 
 **Fertig, wenn:** In der Gesamtansicht bei 1442×920 sind alle Zahlen, Seitenbilder und
 Agentenstatus erkennbar (Bildtest und Augenmaß), und die Galerie ist hell und dunkel freigegeben.
