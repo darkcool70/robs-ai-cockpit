@@ -278,6 +278,8 @@ pub struct SessionOptions {
     pub initial_prompt: Option<String>,
     /// Claude / Codex: the cockpit's own MCP tools (the board) for this session (mcp.rs).
     pub cockpit_tools: bool,
+    /// Only these of the cockpit's tools (a crew agent: its own findings on the board); empty = all.
+    pub cockpit_scope: Vec<String>,
 }
 
 pub const AUTONOMY_LEVELS: &[&str] = &["manual", "accept-edits", "plan", "auto", "full"];

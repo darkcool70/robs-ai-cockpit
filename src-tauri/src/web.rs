@@ -240,6 +240,73 @@ pub fn search(query: &str) -> Result<Vec<SearchHit>, String> {
     Ok(parse_search(&String::from_utf8_lossy(&body)))
 }
 
+/// One picture found for the board (a free picture with its credit).
+#[derive(Serialize, Debug, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ImageHit {
+    pub title: String,
+    /// the picture itself, scaled for a card (a direct image address)
+    pub url: String,
+    /// the page it comes from (credit, licence, full size)
+    pub page: String,
+    pub credit: String,
+    pub license: String,
+}
+
+fn url_encode(s: &str) -> String {
+    s.bytes().map(|b| if b.is_ascii_alphanumeric() { (b as char).to_string() } else { format!("%{b:02X}") }).collect()
+}
+
+/// The pictures in an answer of Wikimedia Commons' search (pure, unit tested): best match first,
+/// photos and drawings only, each with who made it and its licence.
+pub fn parse_images(json: &str) -> Vec<ImageHit> {
+    let v: serde_json::Value = match serde_json::from_str(json) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+    let Some(pages) = v["query"]["pages"].as_object() else { return Vec::new() };
+    let mut hits: Vec<(i64, ImageHit)> = pages
+        .values()
+        .filter_map(|p| {
+            let info = &p["imageinfo"][0];
+            let mime = info["mime"].as_str().unwrap_or("");
+            if !matches!(mime, "image/jpeg" | "image/png" | "image/webp" | "image/gif") {
+                return None;
+            }
+            let url = info["thumburl"].as_str().or_else(|| info["url"].as_str())?.to_string();
+            let meta = |k: &str| clean(info["extmetadata"][k]["value"].as_str().unwrap_or(""));
+            let name = p["title"].as_str().unwrap_or("").trim_start_matches("File:");
+            let title = name.rsplit_once('.').map(|(a, _)| a).unwrap_or(name).replace('_', " ");
+            Some((
+                p["index"].as_i64().unwrap_or(i64::MAX),
+                ImageHit {
+                    title: title.chars().take(120).collect(),
+                    url,
+                    page: info["descriptionurl"].as_str().unwrap_or("").to_string(),
+                    credit: meta("Artist").chars().take(80).collect(),
+                    license: meta("LicenseShortName").chars().take(40).collect(),
+                },
+            ))
+        })
+        .collect();
+    hits.sort_by_key(|(i, _)| *i);
+    hits.into_iter().map(|(_, h)| h).take(8).collect()
+}
+
+/// Find free pictures for a few words (Wikimedia Commons, no account): at most 8, best first.
+pub fn image_search(query: &str) -> Result<Vec<ImageHit>, String> {
+    let q = query.split_whitespace().collect::<Vec<_>>().join(" ");
+    if q.is_empty() || q.len() > 200 {
+        return Err("Nothing to search for".into());
+    }
+    let url = format!(
+        "https://commons.wikimedia.org/w/api.php?action=query&format=json&generator=search&gsrnamespace=6&gsrlimit=16&gsrsearch={}&prop=imageinfo&iiprop=url%7Cmime%7Cextmetadata&iiurlwidth=960&iiextmetadatafilter=Artist%7CLicenseShortName",
+        url_encode(&format!("{q} filetype:bitmap"))
+    );
+    let (_, _, body) = get(&url, MAX_PAGE)?;
+    Ok(parse_images(&String::from_utf8_lossy(&body)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,6 +317,19 @@ mod tests {
             <a class="result__snippet" href="x">The <b>WebAssembly</b> System Interface</a></div>
             <div><a class="result__a" href="https://duckduckgo.com/y.js?ad=1">Ad</a><a class="result__snippet">ad</a></div>"#;
         assert_eq!(parse_search(html), vec![SearchHit { title: "WASI & WebAssembly".into(), url: "https://wasi.dev/".into(), snippet: "The WebAssembly System Interface".into() }]);
+    }
+
+    #[test]
+    fn pictures_come_best_first_with_their_credit() {
+        let json = r#"{"query":{"pages":{
+            "7":{"title":"File:Cat_on_a_wall.jpg","index":2,"imageinfo":[{"thumburl":"https://upload.wikimedia.org/t/960px-Cat_on_a_wall.jpg","url":"https://upload.wikimedia.org/Cat_on_a_wall.jpg","descriptionurl":"https://commons.wikimedia.org/wiki/File:Cat_on_a_wall.jpg","mime":"image/jpeg","extmetadata":{"Artist":{"value":"<a href=\"x\">Ann &amp; Bo</a>"},"LicenseShortName":{"value":"CC BY-SA 4.0"}}}]},
+            "3":{"title":"File:Kitten.png","index":1,"imageinfo":[{"url":"https://upload.wikimedia.org/Kitten.png","descriptionurl":"https://commons.wikimedia.org/wiki/File:Kitten.png","mime":"image/png"}]},
+            "9":{"title":"File:Cat.svg","index":0,"imageinfo":[{"url":"https://upload.wikimedia.org/Cat.svg","mime":"image/svg+xml"}]}}}}"#;
+        let hits = parse_images(json);
+        assert_eq!(hits.iter().map(|h| h.title.as_str()).collect::<Vec<_>>(), vec!["Kitten", "Cat on a wall"]);
+        assert_eq!(hits[0].url, "https://upload.wikimedia.org/Kitten.png");
+        assert_eq!((hits[1].url.as_str(), hits[1].credit.as_str(), hits[1].license.as_str()), ("https://upload.wikimedia.org/t/960px-Cat_on_a_wall.jpg", "Ann & Bo", "CC BY-SA 4.0"));
+        assert!(parse_images("not json").is_empty() && parse_images("{}").is_empty());
     }
 
     #[test]

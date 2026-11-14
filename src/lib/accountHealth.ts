@@ -76,6 +76,21 @@ export function healthUpdate(
   return null;
 }
 
+/**
+ * The account is marked "expired" because the CLI once printed a login error, yet a turn that
+ * started after that mark ended with an answer: the login works again (e.g. after `/login` inside
+ * the terminal), so the stored status is stale and a forced re-check should clear it.
+ */
+export function authRecovered(
+  account: { authStatus: string; authCheckedAt: string | null } | undefined,
+  rt: Pick<RuntimeView, "status" | "error" | "turnStartedAt" | "lastMessage">,
+): boolean {
+  if (account?.authStatus !== "expired" || !account.authCheckedAt) return false;
+  const markedAt = Date.parse(account.authCheckedAt);
+  const answered = (rt.status === "idle" || rt.status === "waiting-for-input") && !rt.error && !!(rt.lastMessage ?? "").trim();
+  return answered && Number.isFinite(markedAt) && (rt.turnStartedAt ?? 0) > markedAt;
+}
+
 /** The map without the account's issue (the same map when it had none). */
 export function clearIssue(issues: AccountIssues, accountId: string): AccountIssues {
   if (!(accountId in issues)) return issues;

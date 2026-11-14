@@ -65,6 +65,8 @@ export interface SessionOptions {
   initialPrompt?: string | null;
   /** Claude / Codex: the cockpit's own MCP tools (the board) for this session. */
   cockpitTools?: boolean;
+  /** Only these of the cockpit's tools (a crew agent); empty = all. */
+  cockpitScope?: string[];
 }
 
 export interface ProjectDefaults {
@@ -759,6 +761,8 @@ export const api = {
   linkPreview: (url: string) => invoke<LinkPreview>("link_preview", { url }),
   /** Board: a picture from the web as data URL. */
   mediaFetch: (url: string) => invoke<string>("media_fetch", { url }),
+  /** free pictures for a few words (Wikimedia Commons): best first, each with its credit */
+  imageSearch: (query: string) => invoke<{ title: string; url: string; page: string; credit: string; license: string }[]>("image_search", { query }),
   openWebLink: (url: string) => invoke<void>("open_web_link", { url }),
   browserOpen: (url: string, title?: string) => invoke<string>("browser_open", { url, title }),
   browserDock: (a: { label: string; url?: string; x: number; y: number; w: number; h: number; visible: boolean }) => invoke<void>("browser_dock", a),

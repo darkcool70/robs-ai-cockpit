@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Account, RuntimeView } from "./api";
 import {
-  ISSUE_FRESH_MS, accountModel, clearIssue, failingModel, freshIssue, healthUpdate, issueFix, readIssues,
+  ISSUE_FRESH_MS, accountModel, authRecovered, clearIssue, failingModel, freshIssue, healthUpdate, issueFix, readIssues,
   suggestModel, troubledAccounts, withAccountModel, type AccountIssues,
 } from "./accountHealth";
 import { bestAccounts, pickFailoverAccount } from "./failover";
@@ -88,5 +88,20 @@ describe("account health", () => {
     expect(issueFix(i, "codex", "C:\\Users\\r\\.codex")).toContain("C:\\Users\\r\\.codex\\config.toml (model = \"…\")");
     expect(issueFix(i, "claude", "/home/r/.claude")).toContain("/home/r/.claude/settings.json");
     expect(issueFix({ ...i, kind: "auth" }, "codex", "/x")).toMatch(/Log in again/);
+  });
+});
+
+describe("authRecovered", () => {
+  const marked = { authStatus: "expired", authCheckedAt: new Date(now).toISOString() };
+  it("is true when a turn started after the expiry mark ended with an answer", () => {
+    expect(authRecovered(marked, rt({ status: "idle", turnStartedAt: now + 60_000, lastMessage: "Done." }))).toBe(true);
+    expect(authRecovered(marked, rt({ status: "waiting-for-input", turnStartedAt: now + 1, lastMessage: "Which file?" }))).toBe(true);
+  });
+  it("keeps the mark for older turns, failed turns, turns without an answer and other statuses", () => {
+    expect(authRecovered(marked, rt({ turnStartedAt: now - 60_000, lastMessage: "Done." }))).toBe(false);
+    expect(authRecovered(marked, rt({ status: "error", turnStartedAt: now + 60_000, lastMessage: "x", error: { kind: "auth", message: "401", at: now + 61_000 } as RuntimeView["error"] }))).toBe(false);
+    expect(authRecovered(marked, rt({ turnStartedAt: now + 60_000, lastMessage: "  " }))).toBe(false);
+    expect(authRecovered({ ...marked, authStatus: "connected" }, rt({ turnStartedAt: now + 60_000, lastMessage: "Done." }))).toBe(false);
+    expect(authRecovered(undefined, rt({ turnStartedAt: now + 60_000, lastMessage: "Done." }))).toBe(false);
   });
 });

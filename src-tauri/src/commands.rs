@@ -814,6 +814,8 @@ fn start_inner(app: &AppHandle, state: &AppState, id: &str, cols: u16, rows: u16
         extra_args: &extra_args,
     });
     if cockpit_tools {
+        // a crew agent sees only its own tools (its findings on the board), the operator all of them
+        crate::mcp::get().scope(id, &s.options.cockpit_scope);
         let access = crate::mcp::get().issue_token(id)?;
         let config = if provider == Provider::Claude {
             let f = run_dir.join("mcp.json");
@@ -2343,6 +2345,12 @@ pub async fn file_preview(path: String) -> AppResult<crate::filepreview::FilePre
 #[tauri::command]
 pub async fn media_fetch(url: String) -> AppResult<String> {
     tauri::async_runtime::spawn_blocking(move || crate::web::media(&url)).await.map_err(|e| AppError::other(e.to_string()))?.map_err(AppError::invalid)
+}
+
+/// Free pictures for a few words (board: "put a picture of … here").
+#[tauri::command]
+pub async fn image_search(query: String) -> AppResult<Vec<crate::web::ImageHit>> {
+    tauri::async_runtime::spawn_blocking(move || crate::web::image_search(&query)).await.map_err(|e| AppError::other(e.to_string()))?.map_err(AppError::invalid)
 }
 
 /// Milliseconds since the last keyboard or mouse input anywhere on this computer (any program):

@@ -16,6 +16,7 @@ import { assistantOf, moodOf } from "../lib/assistants";
 import * as terms from "../lib/terminals";
 import { Badge, Button, cx, IconButton, Kbd, ProviderMark, StatusDot } from "./ui";
 import { Inspector } from "./Inspector";
+import { AccountChip } from "./AccountChip";
 import { WorkspaceHint } from "@pro/FirstSteps";
 
 /** Panes per row: up to 3 side by side, then two rows (5 = 3+2, 8 = 4+4). */
@@ -431,7 +432,6 @@ function PaneView({ index, id }: { index: number; id: string | null }) {
 function PaneHeader({ index, id, onHide }: { index: number; id: string; onHide: () => void }) {
   const launching = useApp((st) => !!st.launching[id]);
   const s = useApp((st) => st.sessions[id]);
-  const acc = useApp((st) => st.accounts.find((a) => a.id === s?.accountId));
   const asst = useApp((st) => assistantOf(st.assistants, id));
   const test = useApp((st) => st.testResults[id]);
   const project = useApp((st) => st.projects.find((p) => p.id === s?.projectId));
@@ -477,7 +477,7 @@ function PaneHeader({ index, id, onHide }: { index: number; id: string; onHide: 
           {s.name}
         </span>
       )}
-      <span className="min-w-0 truncate text-muted @max-[420px]:hidden" title={acc?.name}>{acc?.name}</span>
+      <AccountChip sessionId={id} />
       {project && <span className="hidden truncate text-faint @min-[900px]:inline">{project.name}</span>}
       {(rt?.model ?? s.model) && <span className="@max-[560px]:hidden"><Badge>{rt?.model ?? s.model}</Badge></span>}
       {s.kind === "agent" && autonomyLabel(s.options?.autonomy) && (

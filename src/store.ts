@@ -18,7 +18,8 @@ import {
 } from "./lib/api";
 import * as terms from "./lib/terminals";
 import { pickFailoverAccount } from "./lib/failover";
-import { clearIssue, healthUpdate, readIssues, troubledAccounts, withAccountModel, type AccountIssues } from "./lib/accountHealth";
+import { authRecovered, clearIssue, healthUpdate, readIssues, troubledAccounts, withAccountModel, type AccountIssues } from "./lib/accountHealth";
+import { shouldNotify, type SentLog } from "./lib/notifyDedup";
 import type { Voice } from "./lib/voice";
 import { friendlyError } from "./lib/friendlyError";
 
@@ -293,10 +294,25 @@ function onContext(s: Session, rt: RuntimeView) {
 }
 
 /** Account health (lib/accountHealth.ts): remember a turn that failed on the model / login, forget it after a good turn. */
+/** Limit toasts already shown (a status flapping in and out of "rate-limited" is one event). */
+const limitNotes: SentLog = {};
+/** Accounts whose stale expiry is being re-checked right now. */
+const recheckingAuth = new Set<string>();
 function onAccountHealth(s: Session, rt: RuntimeView) {
   const st = useApp.getState();
   const next = healthUpdate(readIssues(st.settings), s.accountId, rt, s.requestedModel ?? null);
   if (next) saveAccountIssues(next);
+  // A stale "Login expired" mark on an account that answers again: re-check it (forced, since a
+  // normal check keeps a CLI-reported expiry).
+  const acc = st.accounts.find((a) => a.id === s.accountId);
+  if (acc && !recheckingAuth.has(acc.id) && authRecovered(acc, rt)) {
+    recheckingAuth.add(acc.id);
+    void api.accountCheckAuth(acc.id, true)
+      .catch(() => {})
+      .then(() => st.refreshAccounts())
+      .catch(() => {})
+      .finally(() => recheckingAuth.delete(acc.id));
+  }
 }
 
 /** Write the account issues: in memory at once (a second failure right after must see the first), then persisted. */
@@ -469,7 +485,7 @@ export const useApp = create<State>((set, get) => ({
         providerSessionId: ev.payload.providerSessionId ?? s.providerSessionId,
       });
       const st = get();
-      if (ev.payload.status === "rate-limited" && prev !== "rate-limited" && s.kind === "agent") {
+      if (ev.payload.status === "rate-limited" && prev !== "rate-limited" && s.kind === "agent" && shouldNotify(limitNotes, s.id, ev.payload.attention ?? "limit", null)) {
         const acc = st.accounts.find((a) => a.id === s.accountId);
         const alt = pickFailoverAccount(s, st.accounts, st.quota, Object.values(st.sessions), Date.now(), troubledAccounts(readIssues(st.settings)));
         const canMove = !!alt && !!(ev.payload.providerSessionId ?? s.providerSessionId);

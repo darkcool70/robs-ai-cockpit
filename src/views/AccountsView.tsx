@@ -3,7 +3,8 @@ import { open as openDialog, ask } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, KeyRound, LogIn, Plus, RefreshCw, Terminal, Trash2, Wand2 } from "lucide-react";
 import { useApp } from "../store";
 import { api, errMsg, type Account, type Provider, type QuotaWindow, type UsageSummary } from "../lib/api";
-import { ago, compact, currentWindows, resetLabel, windowLabel } from "../lib/format";
+import { ago, compact, resetLabel } from "../lib/format";
+import { planOf, sameLogin, windowInfos } from "../lib/accountInfo";
 import { Badge, Button, Card, Field, FreeBadge, IconButton, Input, Meter, Modal, ProviderMark, SectionTitle, cx } from "../components/ui";
 import { AGENT_PROVIDERS, PROVIDERS, isFreeTier, providerInfo } from "../lib/providers";
 import { AccountHealth } from "./AccountHealth";
@@ -27,9 +28,11 @@ export function AccountsView() {
   const [adding, setAdding] = useState<Provider | null>(null);
   const [settingUp, setSettingUp] = useState(false);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
+  const [history, setHistory] = useState<Record<string, QuotaWindow[]>>({});
 
   useEffect(() => {
     api.usageSummary("all").then(setUsage).catch(() => {});
+    api.quotaHistory(6).then(setHistory).catch(() => {});
   }, [usageVersion, accounts.length]);
 
   function countOf(p: Provider) {
@@ -144,7 +147,7 @@ export function AccountsView() {
               ) : (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(360px,1fr))] gap-3">
                   {list.map((a) => (
-                    <AccountCard key={a.id} account={a} quota={currentWindows(quota[a.id])} tokens={usage?.byAccount.find((g) => g.key === a.id)?.totals.total ?? 0} />
+                    <AccountCard key={a.id} account={a} quota={quota[a.id] ?? []} history={history[a.id] ?? []} tokens={usage?.byAccount.find((g) => g.key === a.id)?.totals.total ?? 0} />
                   ))}
                 </div>
               )}
@@ -176,8 +179,11 @@ const LOGIN_NOTE: Partial<Record<Provider, (name: string) => string>> = {
   antigravity: () => `On its first start agy asks how to sign in: choose Google sign-in, log in in the browser, paste the code back, then accept its terms and the folder trust question.`,
 };
 
-function AccountCard({ account: a, quota, tokens }: { account: Account; quota: QuotaWindow[]; tokens: number }) {
+function AccountCard({ account: a, quota, history, tokens }: { account: Account; quota: QuotaWindow[]; history: QuotaWindow[]; tokens: number }) {
   const { openUtility, refreshAccounts, toast, createSession, activeProjectId } = useApp.getState();
+  const accounts = useApp((st) => st.accounts);
+  const twins = sameLogin(accounts, a);
+  const running = useApp((st) => Object.values(st.sessions).filter((x) => x.kind === "agent" && !x.closed && x.accountId === a.id && x.runtime?.running).map((x) => x.name).join(", "));
   const [checking, setChecking] = useState(false);
   const [loggingIn, setLoggingIn] = useState(false);
   const login = async (deviceAuth = false) => {
@@ -221,8 +227,10 @@ function AccountCard({ account: a, quota, tokens }: { account: Account; quota: Q
       toast(errMsg(e), "error");
     }
   };
-  const ordered = [...quota].sort((x, y) => (x.windowMinutes ?? 0) - (y.windowMinutes ?? 0));
-  const stale = ordered.length > 0 && Date.now() - Math.max(...ordered.map((q) => q.capturedAt)) > 6 * 3600_000;
+  const ordered = windowInfos(quota, history);
+  const captured = quota.length ? Math.max(...quota.map((q) => q.capturedAt)) : 0;
+  const plan = planOf(a);
+  const stale = ordered.length > 0 && Date.now() - captured > 6 * 3600_000;
 
   return (
     <Card className="flex flex-col">
@@ -234,6 +242,7 @@ function AccountCard({ account: a, quota, tokens }: { account: Account; quota: Q
         </span>
         <ProviderMark provider={a.provider} />
         <FreeBadge provider={a.provider} />
+        {plan && <Badge tone="accent" title="Plan reported by the CLI">{plan}</Badge>}
         <Badge tone={auth.tone} title={a.authDetail ?? ""}>● {auth.label}</Badge>
         <div className="ml-auto flex">
           <IconButton title="Re-check login status" onClick={check} disabled={checking}>
@@ -245,6 +254,15 @@ function AccountCard({ account: a, quota, tokens }: { account: Account; quota: Q
       </div>
       <div className="space-y-3 px-3 py-3">
         <AccountHealth account={a} />
+        {twins.length > 0 && (
+          <div className="rounded border border-warn/40 bg-warn/8 px-2 py-1.5 text-[11.5px]">
+            <b className="text-warn">Same login as {twins.map((t) => t.name).join(", ")}.</b>{" "}
+            <span className="text-muted">
+              Both profiles use {a.authEmail}, so they share one subscription and one quota. Log this profile in with another account
+              ("Log in again / switch account" below), or remove it.
+            </span>
+          </div>
+        )}
         {ordered.length === 0 ? (
           <div className="rounded border border-dashed border-line-strong px-2 py-2 text-[12px] text-muted">
             {free ? <>Free allowance: type <code>/usage</code> in the CLI</> : <>Quota details available in <code>/status</code></>}
@@ -253,27 +271,32 @@ function AccountCard({ account: a, quota, tokens }: { account: Account; quota: Q
           </div>
         ) : (
           ordered.map((q) => (
-            <div key={q.window}>
+            <div key={q.key}>
               <div className="mb-1 flex items-baseline justify-between text-[12px]">
-                <span className="text-muted">{windowLabel(q.window, q.windowMinutes)}</span>
+                <span className="text-muted">{q.label}</span>
                 <span className="tabular">
-                  <b className="text-fg">{q.usedPercent.toFixed(0)}%</b> used
-                  {q.resetsAt ? <span className="text-faint"> · resets {resetLabel(q.resetsAt)}</span> : null}
+                  <b className="text-fg">{q.used.toFixed(0)}%</b> used
+                  {q.resetsAt ? <span className="text-faint"> · resets {resetLabel(q.resetsAt)} ({q.until})</span> : null}
                 </span>
               </div>
-              <Meter value={q.usedPercent} />
+              <Meter value={q.used} tone={q.runsOut ? "err" : undefined} />
+              {q.runsOut && q.pace.fullAt && (
+                <p className="mt-0.5 text-[11px] text-err">
+                  At this pace (+{q.pace.perHour?.toFixed(1)}%/h) it runs out around {new Date(q.pace.fullAt).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })}, before the reset.
+                </p>
+              )}
             </div>
           ))
         )}
         {ordered.length > 0 && (
           <p className="text-[10.5px] text-faint">
-            Source: {ordered[0].source === "claude-statusline" ? "Claude Code statusLine" : "Codex session log"} · captured {ago(Math.max(...ordered.map((q) => q.capturedAt)))}
+            Source: {quota[0]?.source === "claude-statusline" ? "Claude Code statusLine" : "Codex session log"} · captured {ago(captured)}
             {stale && " · may be outdated"}
           </p>
         )}
         <dl className="grid grid-cols-[110px_1fr] gap-y-1 text-[11.5px]">
           <dt className="text-faint">Tokens (all time)</dt><dd className="tabular">{compact(tokens)} <span className="text-faint">measured</span></dd>
-          <dt className="text-faint">Login</dt><dd className="truncate">{a.authDetail ?? "not checked"}</dd>
+          <dt className="text-faint">Login</dt><dd className="truncate">{a.authDetail ?? "not checked"}{a.authCheckedAt && <span className="text-faint"> · checked {ago(a.authCheckedAt)}</span>}</dd>
           {a.provider !== "custom" && (
             <>
               <dt className="text-faint">Signed in as</dt>
@@ -291,6 +314,7 @@ function AccountCard({ account: a, quota, tokens }: { account: Account; quota: Q
           <dt className="text-faint">Config dir</dt><dd className="truncate font-mono text-[10.5px]" title={a.configDir}>{a.configDir}</dd>
           <dt className="text-faint">Profile</dt><dd>{a.managed ? "Isolated cockpit profile" : "Existing CLI profile (shared with external terminals)"}</dd>
           <dt className="text-faint">Last used</dt><dd>{ago(a.lastUsedAt)}</dd>
+          <dt className="text-faint">Running now</dt><dd className="truncate" title={running}>{running || <span className="text-faint">no session</span>}</dd>
         </dl>
       </div>
       <div className="mt-auto flex flex-wrap gap-1.5 border-t border-line px-3 py-2">

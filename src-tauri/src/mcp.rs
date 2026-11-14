@@ -36,6 +36,8 @@ pub struct Mcp {
     tools: Mutex<Vec<Value>>,
     /// token → the session (or test label) it was issued for
     tokens: Mutex<HashMap<String, String>>,
+    /// session → the only tools it may see and call (a crew agent); no entry = all tools
+    scopes: Mutex<HashMap<String, Vec<String>>>,
     pending: Mutex<HashMap<u64, mpsc::Sender<Value>>>,
     next: AtomicU64,
 }
@@ -124,6 +126,21 @@ impl Mcp {
         Ok(McpAccess { url: format!("http://127.0.0.1:{port}/mcp"), token })
     }
 
+    /// Only these tools for this session (empty: all of them again). Set before the session starts.
+    pub fn scope(&self, caller: &str, tools: &[String]) {
+        let mut scopes = self.scopes.lock();
+        if tools.is_empty() {
+            scopes.remove(caller);
+        } else {
+            scopes.insert(caller.to_string(), tools.iter().map(|t| t.trim().to_string()).filter(|t| !t.is_empty()).take(32).collect());
+        }
+    }
+
+    /// May this caller see and call this tool?
+    fn allowed(&self, caller: &str, tool: &str) -> bool {
+        self.scopes.lock().get(caller).map_or(true, |list| list.iter().any(|t| t == tool))
+    }
+
     /// The UI's answer to a tool call (`{"text": …, "isError": bool, "image"?: base64 png}`).
     pub fn reply(&self, call_id: u64, result: Value) {
         if let Some(tx) = self.pending.lock().remove(&call_id) {
@@ -184,10 +201,13 @@ impl Mcp {
                 }))
             }
             "ping" => rpc_ok(id, json!({})),
-            "tools/list" => rpc_ok(id, json!({ "tools": *self.tools.lock() })),
+            "tools/list" => {
+                let tools: Vec<Value> = self.tools.lock().iter().filter(|t| t.get("name").and_then(|n| n.as_str()).map_or(false, |n| self.allowed(caller, n))).cloned().collect();
+                rpc_ok(id, json!({ "tools": tools }))
+            }
             "tools/call" => {
                 let name = params.get("name").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                if !self.tools.lock().iter().any(|t| t.get("name").and_then(|n| n.as_str()) == Some(name.as_str())) {
+                if !self.allowed(caller, &name) || !self.tools.lock().iter().any(|t| t.get("name").and_then(|n| n.as_str()) == Some(name.as_str())) {
                     return Some(rpc_error(id, -32602, &format!("Unknown tool: {name}")));
                 }
                 let arguments = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
@@ -303,6 +323,12 @@ pub fn claude_permissions() -> Value {
 mod tests {
     use super::*;
 
+    /// The server is one for the whole process: tests that set its tool list run one after another.
+    static TOOLS: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    fn tools_held() -> std::sync::MutexGuard<'static, ()> {
+        TOOLS.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     fn post(port: u16, token: &str, body: &str) -> (String, String) {
         let mut s = TcpStream::connect(("127.0.0.1", port)).unwrap();
         let req = format!("POST /mcp HTTP/1.1\r\nHost: x\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{body}", body.len());
@@ -315,6 +341,7 @@ mod tests {
 
     #[test]
     fn speaks_json_rpc_and_guards_with_a_token() {
+        let _held = tools_held();
         let m = get();
         *m.tools.lock() = vec![json!({ "name": "board_read", "description": "d", "inputSchema": { "type": "object" } })];
         let access = m.issue_token("test-session").unwrap();
@@ -343,6 +370,25 @@ mod tests {
         let (_, body) = post(port, &access.token, r#"{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"board_read","arguments":{}}}"#);
         let v: Value = serde_json::from_str(&body).unwrap();
         assert_eq!(v["result"]["isError"], true);
+    }
+
+    #[test]
+    fn a_crew_agent_sees_and_calls_only_its_tools() {
+        let _held = tools_held();
+        let m = get();
+        *m.tools.lock() = ["board_read", "card_add", "act"].iter().map(|n| json!({ "name": n, "description": "d", "inputSchema": { "type": "object" } })).collect();
+        m.scope("test-crew", &["board_read".to_string(), "card_add".to_string()]);
+        let access = m.issue_token("test-crew").unwrap();
+        let port: u16 = access.url.split(':').nth(2).unwrap().trim_end_matches("/mcp").parse().unwrap();
+        let (_, body) = post(port, &access.token, r#"{"jsonrpc":"2.0","id":2,"method":"tools/list"}"#);
+        let names: Vec<String> = serde_json::from_str::<Value>(&body).unwrap()["result"]["tools"].as_array().unwrap().iter().map(|t| t["name"].as_str().unwrap().to_string()).collect();
+        assert_eq!(names, vec!["board_read", "card_add"]);
+        let (_, body) = post(port, &access.token, r#"{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"act","arguments":{}}}"#);
+        assert_eq!(serde_json::from_str::<Value>(&body).unwrap()["error"]["code"], -32602, "outside its scope: unknown to it");
+        // the operator (no scope) still has everything
+        assert!(m.allowed("test-operator", "act"));
+        m.scope("test-crew", &[]);
+        assert!(m.allowed("test-crew", "act"), "an empty scope means all tools again");
     }
 
     #[test]

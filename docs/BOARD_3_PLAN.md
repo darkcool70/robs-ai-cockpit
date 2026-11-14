@@ -206,6 +206,8 @@ Rahmen (frame) und Zeichnung (sketch) bleiben Werkzeuge und sind keine Kartenfam
 | **Große Ansicht** | Leertaste | Die Karte groß über dem Board, ihre Belege ringsum. Das vereint „Hineinzoomen“ und die Kartenseite. |
 
 Übergänge blenden in 150 ms ineinander, nie ein Sprung.
+
+> **Entschieden (Rob, 19.10.2026): Karten sehen beim Rauszoomen gleich aus, nur kleiner.** Keine Gesichter in Fernschrift, keine Plakate, keine Diagramme ohne Achsen — das wirkte zu fremd. Es bleiben: Abschnitts- und Rahmennamen stehen von weitem groß darüber (unter 42 %), der Quick Look beim Darüberfahren und die große Ansicht per Leertaste.
 **Messlatte:** In der Gesamtansicht auf einem 13"-Laptop ist jede Zahl, jedes Seitenbild und
 jeder Agentenstatus erkennbar.
 
@@ -431,6 +433,43 @@ NEU     Board      ▣ Titel (1 s)   ▣▣▣ Zahlen   ▣ Seite   ▣▣ Erken
 6. **Beim Erklären zeigen** (`show`), keine Textwand.
 7. **Karten von dir nur per Vorschlag ändern.**
 
+### 6.9 Atlas kann alles, was du ihm sagst
+
+> Auftrag (Rob, 19.10.2026): „Der Assistent soll alles machen können, was ich ihm sage – wenn er
+> irgendwo etwas aufnehmen soll, etwas löschen, rauszoomen, reinzoomen, das als neue Karte,
+> umstrukturieren, wie ich es ihm sage, Terminal, Websuche, Tools … alles, was ich ihm in dem
+> Programm befehle.“
+
+**Grundsatz: Was du mit Maus, Tastatur oder Befehlspalette im Cockpit kannst, kann Atlas auf
+Zuruf auch.** Alle Wege laufen über denselben Befehlskern (6.1). Für etwas, das das Programm
+kann, gibt es kein „das kann ich nicht“ mehr.
+
+| Du sagst | Atlas tut | Werkzeug |
+|---|---|---|
+| „Nimm das als neue Karte auf“, „schreib das unter Quellen“ | legt die Karte im passenden Abschnitt an | `card_add` |
+| „Lösch die drei da“, „weg mit dem Pfeil“ | entfernt Karten oder Pfeile (Rückgängig geht) | `card_remove`, `link` mit `remove` |
+| „Zoom raus“, „näher ran“, „auf 50 %“, „zeig alles“, „geh zu den Zahlen“, „weiter nach rechts“ | bewegt die Kamera | `view` |
+| „Schieb das zu den Erkenntnissen“, „neben die Hypothese“, „in den Rahmen“ | verschiebt Karten | `card_move` |
+| „Bau das um: …“, „mach daraus eine Zeitleiste“, „klapp das zu“, „mach daraus eine Aufgabe“ | ändert Abschnitte, Rahmen, Anordnung und Kartenart | `section`, `board_ops`, `card_update` |
+| „Wähl die aus“, „zeig mir das groß“ | wählt Karten aus oder öffnet die große Ansicht | `view` |
+| „Rückgängig“, „räum auf“, „Röntgenblick“, „präsentier“, „als PowerPoint“, „3D“, „Vollbild“ … | führt jeden Befehl der Befehlspalette aus | `command` |
+| „Öffne die Konten“, „zeig die Aufgaben“, „neues Board ‚Marketing‘“ | wechselt Ansichten und Boards | `act` (view, board, workspace) |
+| „Führ die Tests aus“, „was sagt git status?“, „starte npm run dev“ | arbeitet selbst im Terminal | seine eigenen CLI-Werkzeuge |
+| „Such im Netz nach …“, „lies die Seite“, „öffne sie auf dem Board“ | sucht im Web, liest Seiten und zeigt sie | WebSearch/WebFetch, `act` (browse, page) |
+| „Starte einen Agenten, der …“ | startet Agenten und Crews | `act` (start, crew) |
+
+Regeln:
+
+- Einen Befehl von dir führt Atlas aus, statt ihn zu erklären. Danach sagt er in einem Satz, was
+  er getan hat.
+- Was sich nicht rückgängig machen lässt (Dateien löschen, pushen, etwas verschicken, kaufen),
+  macht Atlas, wenn du es ausdrücklich sagst. Sonst fragt er einmal kurz nach. Passwörter tippt er
+  nie.
+- Größere Code-Arbeit gibt Atlas weiter an Coding-Agenten (eigener Worktree, Review). Sagst du
+  „mach du das“, macht er sie selbst.
+- Atlas weiß, wie weit du hineingezoomt hast (im Schnappschuss steht „Zoom 58 %“). So passen
+  „näher ran“ und „weiter weg“.
+
 ---
 
 ## 7. Bewegung, Ton, Präsentation
@@ -533,8 +572,8 @@ Jede Phase wird einzeln ausgeliefert, getestet und ist dann fertig. Umfang: S (k
 ### Phase 0 – Fundament und Machbarkeit · M
 
 - [x] (15.10.) Design-Tokens 3.0 (Entwurf, `pro/src/design.ts`) und Kartengalerie (`gallery.ts`, Befehlspalette mit Entwickler-Schalter)
-- [~] Bildvergleichs-Tests der Galerie per CDP (`pro/scripts/visual.mjs`, Referenzbilder hell/dunkel in `pro/visual/baseline`) — lokal fertig; drei echte Boards und CI fehlen noch
-- [x] (15.10.) Leistung gemessen (`pro/scripts/perf.mjs`, `pro/visual/perf-baseline.json`): 50 Karten Schieben 48 fps, **150 Karten nur 20 fps**, Öffnen 0,3 / 0,95 s → Ziel 60 fps bei 300 bleibt eine Aufgabe für Phase 3
+- [x] Bildvergleichs-Tests der Galerie per CDP (`pro/scripts/visual.mjs`, Referenzbilder hell/dunkel in `pro/visual/baseline`) — (19.10.) Referenzbilder auf den Stand nach Phase 2 erneuert; (20.10.) **drei echte Boards** dazu (die Demo-Boards Entscheidung, Recherche und Crew, als gewöhnliche Boards geöffnet), alle Boards gelten vorher als gesehen (kein „Neues“-Punkt aus früheren Prüfungen): **16/16 bei 0,00 %**. - [ ] CI auf dem Windows-Runner: braucht einen Push und das private Pro-Repo im Lauf — deine Entscheidung
+- [x] (15.10.) Leistung gemessen (`pro/scripts/perf.mjs`, `pro/visual/perf-baseline.json`): 50 Karten Schieben 48 fps, **150 Karten nur 20 fps**, Öffnen 0,3 / 0,95 s → Ziel 60 fps bei 300 bleibt eine Aufgabe für Phase 3. (20.10., **erreicht**) 300 Karten / 400 Pfeile: Öffnen **0,29 s** (vorher 3,8 s), Schieben **60 fps** (9), Zoomen **104 fps** (10), am Netz; auf Akku 0,56 s / 43 fps. Drei Ursachen: `--gx/--gy/--gs` für das Raster erbten auf alle Karten (jedes Kamerabild 58 ms Stil-Neuberechnung → `@property … inherits: false`), die Board-Welt ist eine eigene Ebene (`will-change: transform`, scharf im Stand), und `edgeRoute.ts` prüfte jeden Umweg gegen alle Karten (nur noch Karten im Band zwischen den beiden, freie Bahnen einmal je Board, jedes Wegstück einmal: 1,1 s → 0,09 s, **dieselben Pfeile** — `edgeRoute.test.ts` vergleicht jeden Pfeil mit der alten Rechnung). **Leistungsbudget:** `perf.mjs --budget` endet mit Fehler, wenn das 300er-Board langsamer öffnet als 400 ms oder unter 55 fps fällt (am Netz messen)
 - [x] (16.10., live) **MCP-Machbarkeitstest:** Cockpit-MCP (`src-tauri/src/mcp.rs`, nur 127.0.0.1, Schlüssel pro Sitzung) mit `board_read`, `card_add`, `show` (`pro/src/mcpBoard.ts`). Live mit Claude Code (Haiku 5.5): 4 Werkzeugaufrufe, drei Karten erschienen **während** der Runde, ganze Runde 15 s, **keine Rückfrage**. Atlas startet mit den Werkzeugen (Einstellung `atlasLiveTools`, Standard an). - [ ] Codex über HTTP noch live prüfen.
 - [~] BoardView.tsx und operator.ts in Module schneiden (begonnen: `operatorProtocol.ts`, `boardEdges.ts`, `cards/kinds.ts`, `cards/CardBody.tsx`; alle Tests grün)
 
@@ -547,10 +586,11 @@ zeigt eine Karte, die weniger als 1,5 s nach dem Absenden erscheint.
 - [x] (16.10.) Ein Befehlskern: Werkzeuge laufen über dieselben geprüften Board-Ops (`cleanOps` → `changeBoard`) wie der `cockpit-actions`-Block (bleibt Rückfall für alles ohne Werkzeug)
 - [x] (16.10.) Schlanker Schnappschuss: mit Werkzeugen nur noch eine Zeile zum Board (Titel, Kartenzahl, Abschnitte, Auswahl, sichtbarer Ausschnitt) statt bis zu 2.200 Zeichen
 - [x] (16.10., live) Kapsel mit Plan (`AtlasCapsule.tsx`): „Atlas · 1/3 · Quellen suchen“ → „Fertig · 13 Karten · Ansehen“; zählt Atlas' Karten der Runde direkt auf dem Board (übersteht Rückfragen zwischendurch)
-- [~] Atlas-Zeiger (vorhanden: Atlas' Hand an der zuletzt berührten Karte) und gestaffelt erscheinende Karten (vorhanden); **neu: deine Frage steht sofort als erste Karte** (leeres Board, live: erste Karte nach 0,5 s statt 26–30 s)
-- [~] `board_check()` (Layout-Prüfung + fehlendes „Kurz gesagt“) und Persona-Regeln 3.0 (Abschnitt „Working live on the board“) — Rezepte folgen
+- [x] Atlas-Zeiger (Avatar mit Namen an der zuletzt berührten Karte; (20.10.) gleitet auf der Kamerafeder) und gestaffelt erscheinende Karten; deine Frage steht sofort als erste Karte (leeres Board, live: erste Karte nach 0,5 s statt 26–30 s). (20.10., live geprüft) **„Folgen“** (6.2): schiebst oder zoomst du selbst, während Atlas arbeitet, ziehen seine neuen Karten die Kamera nicht mehr weg; die Kapsel zeigt „Folgen“ — ein Klick fliegt zu seinen neuesten Karten und folgt wieder (`whereAtlasWorks` in camera.ts + Tests); die nächste Runde folgt von vorn
+- [x] `board_check()` (Layout-Prüfung + fehlendes „Kurz gesagt“) und Persona-Regeln 3.0 (Abschnitt „Working live on the board“); (19.10.) dazu die Rezept-Prüfung (`recipes.ts`, siehe Phase 6)
 - [x] (16.10., live) Rückfrage als Auswahl-Karte: Klick auf „Erst Heizlast berechnen lassen“ → Atlas hielt die Entscheidung als Karte fest und verband sie mit dem nächsten Schritt (9 s).
-- [ ] Crew-Agenten mit eingeschränkten Werkzeugen für ihren Rahmen
+- [x] ○ (19.10.) **Crew-Agenten mit eingeschränkten Werkzeugen für ihren Rahmen**: Claude- und Codex-Crew-Mitglieder bekommen die Cockpit-Werkzeuge, aber nur `board_read`, `card_add`, `card_update` und `link` — der MCP-Server zeigt ihnen keine anderen und lehnt sie ab (`mcp.rs` Scope je Sitzung, Rust-Test). Ihre Karten landen immer in ihrem Crew-Rahmen, sie ändern und verbinden nur Karten dort und stören Atlas' Runde und Plan-Kapsel nicht (`crewCall` in mcpBoard.ts + Tests). Ihr Auftrag sagt: jeden wichtigen Fund gleich als Karte ablegen. Gratis-Konten (Copilot, Antigravity) bleiben wie bisher ohne Werkzeuge. Live mit echter Crew noch zu prüfen (Rust-Teil wirkt ab dem nächsten Build)
+- [x] (19.10., Robs Auftrag; Werkzeuge live in der Testinstanz geprüft, Persona wirkt ab dem nächsten Build) **Atlas kann alles, was du sagst** (Abschnitt 6.9): neue Werkzeuge `view` (Kamera rein/raus/hin, Auswahl, große Ansicht), `card_move`, `board_ops` (jede Board-Op) und `command` (jeder Befehl der Befehlspalette); `link` kann Pfeile entfernen; alle Ansichten erreichbar; Zoom im Schnappschuss; Persona: Terminal, Websuche und Dateien selbst, Befehle ausführen statt erklären
 
 **Fertig, wenn:** In den sechs Szenarien erscheint die erste Karte in unter 1,5 s, es geht keine
 Aktion verloren, mindestens 90 % der Boards sind ohne Mängel laut `board_check`, und Rückgängig
@@ -574,12 +614,12 @@ nimmt eine ganze Atlas-Runde zurück.
 - [ ] Anatomie-Bausteine (Kopf, Körper, Fuß) und die sieben Familien
 - [ ] Größen S, M und L im Raster, Höhe nach Inhalt
 - [ ] Die neuen Schlüsselkarten: Zahl, Diagramm, Seite, Agent, Änderungen, Hypothese, Entscheidung
-- [ ] Vier Zoomstufen mit Fernschrift und Überblendung; Abschnitte als Plakate
-  - [x] (17.10.) **Fernschrift** (`farText.ts` + Tests): nie unter 11 px auf dem Bildschirm, bricht Wort für Wort wie der Browser (ein langes Wort verkleinert die Schrift statt abgeschnitten zu werden), Werte bleiben einzeilig; eine ruhige Schriftskala (Titel bis 18 px, Werte größer, kein Symbol)
-  - [x] (17.10.) **Überblick** bis 60 % (`FAR_K` 0.42 → 0.6): Gesicht je Familie (`farFace.ts` + Tests, `cards/FarFace.tsx`) — Zahl mit „was sie misst“, Seite mit Bild und Website, Aufgabe ✓/◐/○, Agent arbeitet/wartet/Fehler/fertig, Auswahl „→ gewählt“ bzw. „N Optionen“, Hypothese „70 % · 2 dafür · 1 dagegen“, Änderungen/Tabelle/Suche mit Mengen
-  - [x] (17.10.) **Quick Look im Überblick** (`FarPeek`): Zeiger ruht auf einer Karte → ganzer Titel, Zustand und erster Satz in Lesegröße (eigener Store, das Board zeichnet dafür nicht neu)
-  - [ ] Plakat-Stufe unter 30 % (Abschnitt als Plakat mit Schlüsselzahl), Überblendung 150 ms, Diagramm ohne Achsen
-- [x] (17.10.) Große Ansicht per Leertaste, die Seite und „Hineinzoomen“ vereint: Leertaste öffnet die ausgewählte Karte (im Überblick die unter dem Zeiger) groß mit ihren Belegen ringsum, Leertaste schließt; Textkarten zeigen dort den ganzen Text und die Details. Die Ansicht nimmt die Form der Board-Fläche an (`zoomFit`, mindestens 90 % statt vorher 67 % neben dem Chat), die Mitte ist so hoch wie ihr Text, eingehende Pfeile lesen sich von der Karte aus („kommt von“, „verursacht durch“). Offen: Übergang „wächst aus ihrem Platz“ (Federn, Phase 5)
+- [–] ~~Vier Zoomstufen mit Fernschrift und Überblendung; Abschnitte als Plakate~~ — verworfen (Rob, 19.10.): Karten bleiben beim Rauszoomen, wie sie sind (siehe Abschnitt 4)
+  - [–] (17.10., entfernt 19.10.) **Fernschrift** (`farText.ts` + Tests): nie unter 11 px auf dem Bildschirm, bricht Wort für Wort wie der Browser (ein langes Wort verkleinert die Schrift statt abgeschnitten zu werden), Werte bleiben einzeilig; eine ruhige Schriftskala (Titel bis 18 px, Werte größer, kein Symbol)
+  - [–] (17.10., entfernt 19.10.; `FAR_K` wieder 0.42) **Überblick** bis 60 % (`FAR_K` 0.42 → 0.6): Gesicht je Familie (`farFace.ts` + Tests, `cards/FarFace.tsx`) — Zahl mit „was sie misst“, Seite mit Bild und Website, Aufgabe ✓/◐/○, Agent arbeitet/wartet/Fehler/fertig, Auswahl „→ gewählt“ bzw. „N Optionen“, Hypothese „70 % · 2 dafür · 1 dagegen“, Änderungen/Tabelle/Suche mit Mengen
+  - [x] (17.10.; bleibt, über unveränderten Karten unter 42 %) **Quick Look im Überblick** (`FarPeek`): Zeiger ruht auf einer Karte → ganzer Titel, Zustand und erster Satz in Lesegröße (eigener Store, das Board zeichnet dafür nicht neu)
+  - [–] ~~Plakat-Stufe unter 30 % (Abschnitt als Plakat mit Schlüsselzahl), Überblendung 150 ms, Diagramm ohne Achsen~~ — gebaut und verworfen (Rob, 19.10.)
+- [x] (17.10.) Große Ansicht per Leertaste, die Seite und „Hineinzoomen“ vereint: Leertaste öffnet die ausgewählte Karte (im Überblick die unter dem Zeiger) groß mit ihren Belegen ringsum, Leertaste schließt; Textkarten zeigen dort den ganzen Text und die Details. Die Ansicht nimmt die Form der Board-Fläche an (`zoomFit`, mindestens 90 % statt vorher 67 % neben dem Chat), die Mitte ist so hoch wie ihr Text, eingehende Pfeile lesen sich von der Karte aus („kommt von“, „verursacht durch“). (20.10., live geprüft) **Wächst aus ihrem Platz:** die große Karte startet genau über der Karte auf dem Board und springt auf der Kamerafeder in die Mitte (`growFrom` in zoomInto.ts + Tests); eine Ebene tiefer wächst sie aus dem angeklickten Beleg
 - [x] (17.10.) Verbinder mit Fokus und Kontext (`focus.ts` + Tests): Pfeile der ausgewählten Karte in Akzentfarbe mit ihrem Wort (stützt, verursacht …), verbundene Karten bleiben klar, der Rest tritt zurück
 
 **Fertig, wenn:** In der Gesamtansicht bei 1442×920 sind alle Zahlen, Seitenbilder und
@@ -587,11 +627,11 @@ Agentenstatus erkennbar (Bildtest und Augenmaß), und die Galerie ist hell und d
 
 ### Phase 4 – Zusammenarbeit · L
 
-- [~] Gemeinsame Aufmerksamkeit (Ausschnitt, Maus und Auswahl gehen an Atlas; Atlas' Rand an Karten) — (17.10.) die Karte unter der Maus geht mit jeder Nachricht mit (`pointing.ts`, siehe [BEGEISTERUNG_ANALYSE.md](BEGEISTERUNG_ANALYSE.md) 1.1)
-- [ ] Vorschlagsmodus für deine Karten; Umbau-Vorschläge mit Vorschau
-- [~] Herkunft im Kartenfuß; die Rechnung von Zahlen in „Info“ — (17.10.) zuerst als Röntgenblick (Alt halten); im Normalzustand bleibt die Karte ohne Fuß
-- [ ] Verlauf mit Schieberegler und Wiederherstellen
-- [ ] Kurze Chat-Antworten, „Kurz gesagt“, „im Gespräch erwähnt“, Vorschlags-Chips im Board
+- [x] Gemeinsame Aufmerksamkeit (Ausschnitt, Maus und Auswahl gehen an Atlas; Atlas' Rand an Karten) — (17.10.) die Karte unter der Maus geht mit jeder Nachricht mit (`pointing.ts`, siehe [BEGEISTERUNG_ANALYSE.md](BEGEISTERUNG_ANALYSE.md) 1.1); (19.10., live geprüft) Atlas kennt deinen Zoom, und Karten, die er gezielt liest (`board_read` nach Abschnitt, IDs oder Wort, bis 12 Karten), bekommen 7 s lang einen feinen Rand in seiner Farbe, ohne Leuchten
+- [x] (19.10., live gesehen) **Vorschlagsmodus für deine Karten** (`proposals.ts` + Tests): Ändert, verschiebt oder entfernt Atlas von sich aus eine Karte von dir, wartet die Änderung als Chip unter der Karte („Atlas schlägt vor: Titel kürzen ✓ ✗“). ✓ übernimmt sie als deine Änderung (Strg+Z nimmt sie zurück), ✗ verwirft sie. Hast du es ihm ausdrücklich gesagt (6.9), passiert es sofort (`asked`). (19.10., live geprüft) **Große Umbauten:** ab zwei wartenden Vorschlägen steht oben „Atlas schlägt 4 Änderungen an deinen Karten vor · Vorschau · Alle übernehmen · Alle verwerfen“; die Vorschau zeigt das Board mit allen übernommen (nur zum Ansehen, „Vorher“ oder Esc zurück), beides ist ein Rückgängig-Schritt
+- [~] Herkunft im Kartenfuß; die Rechnung von Zahlen in „Info“ — (17.10.) zuerst als Röntgenblick (Alt halten); im Normalzustand bleibt die Karte ohne Fuß. Die Rechnung steht in „Info“ für lebende Zahlen (`formula`: „Rechnung … = 41 %“ mit den Karten, aus denen sie besteht). (20.10., live geprüft) **Veraltet-Erkennung für Seiten** (6.5): eine Seitenkarte merkt sich, wann sie ihre Seite gelesen hat (`fetched`); „Info“ zeigt „Gelesen: vor 41 Tagen“, nach 30 Tagen leise „veraltet?“, und „Neu laden“ liest sie noch einmal (Atlas' Text bleibt) — `pageRead`/`pageStale` in cards/cardStates.ts + Tests; die Karte selbst bleibt ruhig
+- [x] (19.10., live geprüft) **Verlauf mit Schieberegler und Wiederherstellen** (`history.ts` + Tests): Jede Runde ist ein Schritt (Atlas' ganze Runde, deine Änderungen nach 6 s Pause), höchstens 40 Schritte und 3 MB je Board, gespeichert unter eigenem Schlüssel `h:<board>` im vorhandenen Board-Speicher (keine Rust-Änderung, nie ein Reiter; beim Löschen des Boards geht er mit). „Info“ → Verlauf: Schieberegler, das Board zeigt den Stand leicht entsättigt und nur zum Ansehen (Verschieben/Zoomen geht, Karten anfassen nicht); oben „Stand Mo., 20:46 · Atlas · 8 neu · 1/3 · Wiederherstellen · Als neues Board · ✕“, Esc = zurück zu jetzt. Wiederherstellen ist ein Rückgängig-Schritt. Statt Deltas speichert er ganze Stände (einfacher, robust; die 3-MB-Grenze schützt den Speicher)
+- [x] Kurze Chat-Antworten und „Kurz gesagt“ (16.10., Werkzeug `summary` + Persona), Vorschlags-Chips im Board (17.10., Geisterkarten mit Tab); (19.10.) **„Im Gespräch erwähnt“** (`mentions.ts` + Tests): „Info“ zeigt bei einer Karte die Sätze, in denen Atlas sie im Chat genannt hat (neueste zuerst, höchstens drei), ein Klick holt den Chat nach vorn, scrollt zur Antwort und lässt sie einmal aufleuchten — ○ live noch zu prüfen (die Testinstanz hat ohne Konto keinen Chat)
 - [x] (17.10., live) Zeigen und Sprechen zusammen
 
 **Fertig, wenn:** Atlas ändert keine Karte von dir ohne dein Ja (Test), jede Atlas-Karte hat eine
@@ -599,25 +639,25 @@ Herkunft, und der Verlauf spielt 20 Runden flüssig ab.
 
 ### Phase 5 – Bewegung und Präsentation · M
 
-- [ ] Federn für Kamera und Karten, unterbrechbar
-- [ ] Zaubereffekt zwischen Abschnitten beim Präsentieren
-- [ ] Präsentieren-Menü aufgeräumt; Referentenansicht (optional)
-- [ ] Effekte nur noch in Demo und Präsentation
-- [ ] Briefing-Export (eine Seite)
+- [x] (19.10., live gemessen) **Federn für Kamera und Karten** (`springAt`, `springOmega`, `carryOver` in camera.ts + Tests): kritisch gedämpft — sie setzt sofort ein, schwingt nie über das Ziel, und eine umgelenkte Fahrt behält ihren Schwung; „Bewegung reduzieren“ springt direkt. (19.10.) Karten gleiten auf derselben Feder: `springEasing()` als CSS-Kurve `linear(…)` in `.board-glide` (ein Test hält CSS und Feder gleich; Browser ohne `linear()` behalten die alte Kurve)
+- [x] (19.10., live geprüft) **Zaubereffekt beim Präsentieren** (`slideStage`/`onStage` in present.ts + Tests): die Karten eines Abschnitts fliegen in die Folie — Reihen in Leserichtung, jede Reihe mittig, geformt für die Fläche (eine Spalte aus vier Karten wird 2×2) — und auf der nächsten Folie zurück; nur gezeigt, das Board behält seine Plätze (Ziehen einer Folienkarte verschiebt nichts). Bleibt stehen: Überblick, Kapitel-Rahmen mit eigenem Aufbau, eine einzelne Karte, und wenn die Folie nicht mindestens 15 % größer zeigen würde (z. B. neben dem offenen Chat)
+- [x] Präsentieren-Menü aufgeräumt (seit Phase 2: „Präsentieren“ ist ein Knopf, Film/PowerPoint/PDF Einträge, „Kamera folgt“ und „Als Gespräch“ Schalter). (19.10., live geprüft) **Referentenansicht** (`presenter.ts`, `PresenterWindow.tsx`, `pro/src-tauri/presenter.rs`): eigenes Fenster, auf dem zweiten Bildschirm, wenn es einen gibt — Folie x von y, „Was du sagst“ (die Erzählung ohne Kartenmarken), „Als Nächstes“ mit den Karten, Zeit seit Beginn und Uhr; Weiter/Zurück/Beenden (auch ← → Esc) steuern das Cockpit, beim Ende schließt es sich
+- [x] (19.10.) Effekte nur noch in Demo und Präsentation: die Aurora über dem Board und die Kometen-Spur hinter Atlas' Hand erscheinen nur noch dort (Funken waren schon aus); beim Arbeiten sagt die Statuskapsel, dass Atlas arbeitet
+- [x] (19.10., Seite mit echtem Board gerendert) **Briefing-Export (eine Seite)** (`briefing.ts` + Tests): „Teilen“ → „Briefing (eine Seite)“, Befehlspalette „Briefing“ oder Atlas per `command`. Ergebnis („Kurz gesagt“), Empfehlung, bis zu vier Kennzahlen als Kacheln, „Was wir wissen“ mit Quelle und Konfidenz, Optionen, Offenes und Risiken, nächste Schritte mit Status, Quellen als Links; ruhige Webseite, druckfertig auf A4 (Strg+P → PDF), leere Teile fallen weg
 
 ### Phase 6 – Rezepte und Qualität · M
 
-- [ ] Sechs Rezepte mit Pflichtteilen und Prüfung
-- [ ] „Neues Board“ fragt nach dem Zweck, oder Atlas wählt; Vorlagen auch für dich
-- [ ] Demo neu auf Basis der Rezepte (die Nordlicht-Szene als Demo-Tab)
+- [x] (19.10.) Rezepte mit Pflichtteilen und Prüfung (`recipes.ts` + Tests): je Board-Form (Entscheiden, Vergleichen, Recherche, Fehlersuche, Planen, Ideen, Verstehen) eine kurze Liste — z. B. Entscheidung: Empfehlung, mindestens zwei Optionen, jede mit Beleg; Recherche: jede Kernaussage mit Quelle, Thesen mit Konfidenz. Atlas bekommt Fehlendes von `board_check`, du siehst es in „Info“ unter „Aufbau“ als ruhige Checkliste (offene Punkte führen per Klick zu den Karten, „Atlas ergänzt das“). Dashboard/Umsetzung/Code-Karte entstehen über eigene Wege (`dashboard`, Crew, `map`) und haben dort ihre Prüfung
+- [x] (19.10., live gesehen) „Neues Board“ fragt nach dem Zweck, oder Atlas wählt: das leere Board zeigt „Wofür ist dieses Board?“ mit den sieben Arten (Entscheiden … Verstehen); die Wahl zeigt ihre Abschnitte, gilt als deine (`shapeChosen`) und wird von deiner Frage nicht mehr überschrieben — ohne Wahl nimmt das Board die Art aus deiner Frage wie bisher. (19.10., live geprüft) **Vorlagen** (`templates.ts` + Tests): „Mit Vorlage beginnen“ (auch Befehlspalette) legt je Art 4–6 Fragekarten in ihre Abschnitte („Was entscheiden wir?“, „Option A/B“, „Unsere Empfehlung“, „Erster Schritt“ …). Sie tragen `tpl`: das Rezept zählt sie nicht, Atlas sieht „template: fill this in“ und füllt sie ohne Vorschlagsschleife, und wer darauf schreibt, macht sie zu normalen Karten
+- [x] (19.10., live geprüft) **Demo neu auf Basis der Rezepte:** neuer erster Tab „Demo · Entscheidung“ (`decisionBoard` in demo.ts, englisch in demoEn.ts) — die Nordlicht-Szene in Abschnitten (Ziel → Zahlen → Erkenntnisse → Optionen → Entscheidung → Schritte), 9 Karten, jede Option mit Quelle, „Kurz gesagt“; ein Test verlangt, dass ihr Rezept vollständig ist. Der Film beginnt dort (89,5 s). Dabei behoben: Rezepte gelten nur für Boards mit Abschnitten (Dashboard, Crew und frei gelegte Boards zeigten falsche Lücken)
 
 ### Phase 7 – Feinschliff und Barrierefreiheit · M
 
-- [ ] Tastaturbedienung vollständig, Screenreader, Kontrast, Klickziele
-- [ ] Hell und dunkel gleichwertig (Galerie-Test)
-- [ ] Glossar; alle Meldungen in Klartext mit Lösung
-- [ ] Leere Zustände, Fehler- und Ladezustände für jede Kartenfamilie
-- [ ] Klangsatz
+- [~] (19.10., live geprüft) **Tastatur und Screenreader** (`keyNav.ts` + Tests): Tab / Shift+Tab und die Pfeiltasten gehen in Leserichtung von Karte zu Karte (Abschnitte links → rechts, darin oben → unten; ← → zur nächsten Karte daneben), Pos1/Ende zur ersten/letzten, Enter bearbeitet, Leertaste öffnet groß, Entf löscht (mit Rückgängig); eine Karte außerhalb des Bildes oder zu klein wird angefahren. Für Screenreader: eine unsichtbare Gliederung (Abschnitte mit ihren Karten, Enter wählt aus), jede erreichte Karte wird angesagt („Zahl, Abbruchrate, 68 %, von Atlas“), und wenn Atlas fertig ist („Atlas ist fertig: 6 neue Karten“). (19.10.) **Kontrast nach WCAG AA:** der leise Text (`--b-ink3`) lag bei 3,3–3,6:1 und steht jetzt bei ≥ 4,6:1 in Hell und Dunkel (dunkel 0,42 → 0,55, hell 0,6 → 0,74); ein Test (`contrast.test.ts`) prüft jede Text-Farbe auf Karte und Fläche gegen AA. (19.10.) **Klickziele:** gemessen (57 Bedienelemente am Board); die kleinsten — Statuskreis der Aufgabe (15 px), Punkt auf unbeschrifteten Pfeilen (12 px), „Gesehen“ (12 px) — haben jetzt eine unsichtbare Trefferfläche von gut 28 px (`.board-hit`), das Aussehen bleibt gleich (Bildvergleich 0,00 %). (19.10.) Nachgemessen: die übrigen 20–23-px-Chips stehen weit genug auseinander (WCAG 2.5.8, Abstandsregel), die 12-px-Punkte auf Pfeilen haben die Trefferfläche
+- [x] (19.10.) **Hell und dunkel gleichwertig:** Bildvergleich je fünf Ansichten hell und dunkel; Kontrast-Test für beide Modi, jetzt auch für Pfeile (WCAG 1.4.11, ≥ 3:1 — hell lagen neutrale Pfeile bei 1,9:1, „stützt“ bei 2,8:1; dunkel 2,8:1), Referenzbilder erneuert (10/10)
+- [x] (19.10.) Glossar ([GLOSSAR.md](GLOSSAR.md): Board, Art, Abschnitt, Kapitel, Karte, Beleg, Runde, Vorschlag, Rezept, Verlauf … deutsch/englisch, mit „nicht“-Wörtern); Meldungen in Klartext mit Lösung seit 16.10. (`friendlyError.ts`)
+- [x] (19.10., live geprüft) **Leere, Lade- und Fehlerzustände für jede Kartenfamilie** (`cards/cardStates.ts` + Tests): eine ruhige Zeile statt leerer Karte („Noch kein Wert“, „Noch keine Antworten zur Auswahl“, „Leer – Doppelklick zum Schreiben“); Seiten, Bilder und Daten, die nicht laden, sagen es mit Website und „Erneut versuchen“ (`failed`, `retryCard`) statt die Rohfehlermeldung als Kartentext zu speichern oder endlos zu schimmern; Atlas' eigener Text über eine Seite bleibt lesbar, nur der Fuß sagt „nicht erreichbar“. Ein Agent ohne Lauf heißt „Angehalten“ statt „stopped“
+- [x] Klangsatz: die drei Momente klingen schon — fertig und „braucht dich“ (Hinweiston der Benachrichtigung), Fehler (`playSfx("error")`), alles im gewählten Klangstil (Voice-Tab: Sci-Fi, Klassisch, Aus); die Board-Töne sind getrennt abschaltbar
 
 **Vorschlag für Releases:** 0.5 = Phase 0 und 1 (Atlas live) · 0.6 = Phase 2 und 3 (Ruhe und
 Karten) · 0.7 = Phase 4 und 5 · 1.0 = Phase 6 und 7.
@@ -659,6 +699,12 @@ Karten) · 0.7 = Phase 4 und 5 · 1.0 = Phase 6 und 7.
 - Keine Cloud: Alles bleibt auf deinem Rechner.
 
 ## 13. Deine Entscheidungen
+
+> **Auftrag (Rob, 19.10.2026): Atlas kann alles, was du ihm sagst.** Board, Kamera, Befehle,
+> Ansichten, Terminal, Websuche und Werkzeuge. Was sich nicht rückgängig machen lässt, macht er
+> nur, wenn du es ausdrücklich sagst (Abschnitt 6.9).
+
+> **Entschieden (Rob, 19.10.2026): Karten sehen beim Rauszoomen gleich aus, nur kleiner.** Keine Gesichter in Fernschrift, keine Plakate, keine Diagramme ohne Achsen — das wirkte zu fremd. Es bleiben: Abschnitts- und Rahmennamen stehen von weitem groß darüber (unter 42 %), der Quick Look beim Darüberfahren und die große Ansicht per Leertaste.
 
 > **Entschieden (Rob, 14.10.2026): alle vier Empfehlungen.** Zuerst „Atlas live“; Dock unten in
 > der Mitte; Vorschläge nur für deine Karten; Releases 0.5 / 0.6 / 0.7 / 1.0. Phase 0 läuft.

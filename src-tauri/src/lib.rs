@@ -280,6 +280,10 @@ pub fn run() {
             pro::commands::pro_refresh,
             #[cfg(feature = "pro")]
             pro::commands::pro_open,
+            #[cfg(feature = "pro")]
+            pro::presenter::presenter_open,
+            #[cfg(feature = "pro")]
+            pro::presenter::presenter_close,
             commands::stt_status,
             commands::stt_install,
             commands::stt_warmup,
@@ -295,6 +299,7 @@ pub fn run() {
             commands::user_idle_ms,
             commands::link_preview,
             commands::media_fetch,
+            commands::image_search,
             commands::open_web_link,
             commands::tts_status,
             commands::board_get,

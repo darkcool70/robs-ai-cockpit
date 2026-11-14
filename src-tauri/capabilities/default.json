@@ -4,7 +4,8 @@
   "description": "Main window: core IPC, native dialogs, taskbar attention, window title and global voice shortcuts. Opening paths is done server-side for known directories only.",
   "windows": [
     "main",
-    "hud"
+    "hud",
+    "presenter"
   ],
   "permissions": [
     "core:default",

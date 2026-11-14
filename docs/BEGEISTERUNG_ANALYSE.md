@@ -484,4 +484,5 @@ Austausch per PowerPoint und Zahlen zum Anfassen.
   - Nach der Antwort kommen sofort richtig oder falsch, und die Kamera fliegt mit Spotlight zur belegenden Karte. Am Ende steht „x von y richtig“.
   - Erreichbar über Dock, Palette, Sprache („Teste mich“) und Atlas (`{"do":"quiz","questions":[…]}`).
   - Live: Falschantwort orange, richtige grün, Kamera auf „Pilot mit zwei Kanzleien“.
+- [–] (19.10.) ~~**2.11 Plakat-Stufe und Überblendung**~~ — gebaut und verworfen (Rob): Karten sehen beim Rauszoomen gleich aus, nur kleiner; auch die Fernschrift-Gesichter des Überblicks sind entfernt.
 - [x] (18.10.) **2.10 Kritiker in Rot**: Im Kartenmenü jeder Aussage steht „Atlas greift an: Was spricht dagegen?“. Atlas sucht echte Gegenbelege, legt sie mit rotem „widerspricht“ daneben, korrigiert die Karte und sagt ehrlich, wenn nichts dagegen spricht. Die Darstellung (Blitz-Pfeil, sinkende Konfidenz) gab es schon. Nicht live getestet, weil es eine echte Atlas-Runde kostet.

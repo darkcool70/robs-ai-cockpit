@@ -306,6 +306,8 @@ g:hover > foreignObject .board-edge-handle, .board-edge-handle:hover { opacity: 
 .board-shimmer { background: linear-gradient(90deg, rgba(255,255,255,0.04), rgba(255,255,255,0.12), rgba(255,255,255,0.04)); background-size: 200% 100%; animation: board-shimmer 1.2s linear infinite; }
 @keyframes board-shimmer { from { background-position: 200% 0; } to { background-position: -200% 0; } }
 .board-cursor { display: flex; align-items: center; transition: left 0.6s cubic-bezier(0.3, 0.8, 0.3, 1), top 0.6s cubic-bezier(0.3, 0.8, 0.3, 1); z-index: 4; filter: drop-shadow(0 0 10px rgba(56, 189, 248, 0.7)); }
+/* Atlas' pointer glides on the camera's spring too (camera.ts springEasing) */
+.board-cursor { transition: left 0.6s linear(0, 0.072, 0.22, 0.38, 0.526, 0.647, 0.743, 0.816, 0.87, 0.91, 0.939, 0.96, 0.974, 0.985, 0.992, 0.997, 1), top 0.6s linear(0, 0.072, 0.22, 0.38, 0.526, 0.647, 0.743, 0.816, 0.87, 0.91, 0.939, 0.96, 0.974, 0.985, 0.992, 0.997, 1); }
 .board-cursor-ring { position: absolute; left: -5px; top: -5px; width: 36px; height: 36px; border-radius: 9999px; border: 2px solid #38bdf8; animation: board-point 1.2s ease-in-out infinite; }
 .board-subtitle { background: rgba(4, 8, 16, 0.78); border: 1px solid rgba(56, 189, 248, 0.25); box-shadow: 0 8px 30px rgba(0, 0, 0, 0.5); text-shadow: 0 1px 2px rgba(0, 0, 0, 0.8); animation: msg-in 0.25s ease-out; }
 .board-frame { background: color-mix(in srgb, var(--nc) 5%, transparent); border-color: color-mix(in srgb, var(--nc) 45%, transparent); }
@@ -323,10 +325,21 @@ g:hover > foreignObject .board-edge-handle, .board-edge-handle:hover { opacity: 
 .board-caret { display: inline-block; width: 6px; height: 1em; margin-left: 1px; vertical-align: -2px; background: #38bdf8; animation: board-blink 0.7s steps(2) infinite; }
 @keyframes board-blink { 50% { opacity: 0; } }
 .board-node > * { transition: opacity 0.35s ease; }
-.board-far > :not(.board-far-face):not(.board-pin) { opacity: 0; pointer-events: none; }
-.board-far-face { animation: board-fade 0.35s ease; background: color-mix(in srgb, var(--nc) 10%, transparent); }
+/* Board 3.0, Phase 7: a small control gets a larger, invisible target (about 28 px) — it looks the same */
+.board-hit { position: relative; }
+.board-hit::after { content: ""; position: absolute; inset: -8px; }
+/* Board 3.0, 6.3: a card Atlas is reading right now — a fine rim in his colour, no glow */
+.board-node.board-atlas-reads { outline: 1.5px solid color-mix(in oklab, var(--b-link) 60%, transparent); outline-offset: 3px; }
+/* Board 3.0, 6.6: an answer reached from a card („Im Gespräch erwähnt“) lights up once */
+@keyframes msg-flash { 0%, 30% { background: color-mix(in oklab, var(--color-accent, #0a84ff) 16%, transparent); } 100% { background: transparent; } }
+.msg-flash { animation: msg-flash 1.6s ease-out; border-radius: 16px; }
+@media (prefers-reduced-motion: reduce) { .msg-flash { animation: none; } }
+/* Board 3.0, 6.7: a step of the history is only looked at — its cards cannot be grabbed, a calm tint says "the past" */
+.board-past .board-node, .board-past .board-frame { pointer-events: none; }
+/* Zaubereffekt: a slide's cards stand above the board that steps back behind them */
+.board-node.board-staged { z-index: 4; }
+.board-past .board-world { filter: saturate(0.6); }
 .board-far-title { font-weight: 800; letter-spacing: 0.01em; text-shadow: 0 0 18px currentColor, 0 2px 6px rgba(0,0,0,0.8); animation: board-fade 0.35s ease; }
-.board-far-face svg { filter: drop-shadow(0 0 8px var(--nc)); }
 /* ---- the board as a space: caption, legend, dates, chapters ---- */
 .board-legend { display: inline-flex; align-items: center; gap: 3px; border-radius: 9999px; border: 1px solid rgba(255, 255, 255, 0.12); padding: 0 6px; font-size: 10.5px; color: rgba(255, 255, 255, 0.78); line-height: 18px; }
 button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); }
@@ -434,10 +447,8 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
 .board-cluster-label:hover { color: #fff; }
 .board-cluster-count { font-weight: 600; color: rgba(255, 255, 255, 0.55); }
 .board-cluster-label.board-cluster-new .board-cluster-count { color: #7dd3fc; }
-.board-far-face { transition: opacity 0.4s ease; }
 /* the overview's Quick Look (FarPeek): fades in over the card it describes */
 .board-peek { animation: board-fade 0.14s ease both; }
-.board-clustered.board-far > .board-far-face { opacity: 0.28; }
 .board-zoomin { animation: board-fade 0.25s ease both; }
 .board-zoomin-center { animation: board-zoomin-center 0.4s cubic-bezier(0.2, 0.9, 0.3, 1) both; box-shadow: 0 20px 70px rgba(0, 0, 0, 0.6), 0 0 40px color-mix(in srgb, var(--nc) 22%, transparent); }
 @keyframes board-zoomin-center { from { opacity: 0; transform: scale(0.88); } to { opacity: 1; transform: none; } }
@@ -447,7 +458,7 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
 .board-zoomin-line { opacity: 0.75; animation: board-fade 0.5s ease both; }
 @media (prefers-reduced-motion: reduce) {
   .board-cluster-halo, .board-cluster-label, .board-zoomin, .board-zoomin-center, .board-zoomin-item, .board-zoomin-line { animation: none !important; }
-  .board-far-face, .board-node > * { transition: none !important; }
+  .board-node > * { transition: none !important; }
 }
 /* the demo presented (DemoStage.tsx): only the board, the overview, the spotlight and the stage layer stay */
 .board-stage > :not(.board-world):not(.board-overview):not(.board-spot-veil):not(.demo-stage) { display: none !important; }
@@ -482,7 +493,7 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
   /* ink in four strengths: titles · text · meta · hints */
   --b-ink: #f5f5f7;
   --b-ink2: rgba(235, 235, 245, 0.72);
-  --b-ink3: rgba(235, 235, 245, 0.42);
+  --b-ink3: rgba(235, 235, 245, 0.55); /* WCAG AA (≥ 4.5:1) on card, canvas and raised card — was 0.42 (3.6:1) */
   --b-ink4: rgba(235, 235, 245, 0.24);
   --b-accent: #0a84ff;
   /* accent as text on a dark surface (a touch lighter, easier to read) */
@@ -502,7 +513,8 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
   --b-c7: #48484a;
   --b-lane: rgba(255, 255, 255, 0.028);
   --b-lane-line: rgba(255, 255, 255, 0.05);
-  --b-edge: rgba(235, 235, 245, 0.34);
+  /* arrows carry meaning: at least 3:1 on the canvas (WCAG 1.4.11), light and dark alike — contrast.test.ts */
+  --b-edge: rgba(235, 235, 245, 0.37);
   --b-edge-hi: rgba(235, 235, 245, 0.7);
   --b-edge-for: rgba(48, 209, 88, 0.7);
   --b-edge-against: rgba(255, 69, 58, 0.78);
@@ -536,6 +548,14 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
   background-size: var(--gs) var(--gs);
   background-position: var(--gx) var(--gy);
 }
+/* The grid follows the camera on every frame. Not inherited: otherwise each move recalculates the
+   style of every card under the board (58 ms per frame at 300 cards; Board 3.0, Leistung). */
+@property --gx { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --gy { syntax: "<length>"; inherits: false; initial-value: 0px; }
+@property --gs { syntax: "<length>"; inherits: false; initial-value: 28px; }
+/* The world is its own layer: the camera moves it without painting every card again (zooming a
+   300-card board: a third fewer stuttering frames). Chrome still rasters it sharp at rest. */
+.board-bg:not(.board-depth) > .board-world { will-change: transform; }
 /* the light board: paper-white cards on a soft grey canvas, the same calm in daylight */
 :root[data-theme="light"] :is(.board-bg, .board-portal) {
   --b-canvas: #f5f5f7;
@@ -549,7 +569,7 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
   --b-fill-hi: rgba(0, 0, 0, 0.075);
   --b-ink: #1d1d1f;
   --b-ink2: rgba(29, 29, 31, 0.78);
-  --b-ink3: rgba(60, 60, 67, 0.6);
+  --b-ink3: rgba(60, 60, 67, 0.74); /* WCAG AA (≥ 4.5:1) on white, canvas and lanes — was 0.6 (3.4:1) */
   --b-ink4: rgba(60, 60, 67, 0.3);
   --b-accent: #007aff;
   --b-link: #0066d6;
@@ -566,9 +586,9 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
   --b-c7: #d1d1d6;
   --b-lane: rgba(0, 0, 0, 0.022);
   --b-lane-line: rgba(0, 0, 0, 0.05);
-  --b-edge: rgba(60, 60, 67, 0.36);
+  --b-edge: rgba(60, 60, 67, 0.57);
   --b-edge-hi: rgba(60, 60, 67, 0.72);
-  --b-edge-for: rgba(36, 138, 61, 0.75);
+  --b-edge-for: rgba(36, 138, 61, 0.82);
   --b-edge-against: rgba(215, 0, 21, 0.7);
   --b-glass: rgba(255, 255, 255, 0.74);
   --b-glass-hi: rgba(255, 255, 255, 0.9);
@@ -598,6 +618,8 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
   box-shadow: var(--b-shadow);
 }
 .board-glide { transition: left 0.6s var(--b-ease), top 0.6s var(--b-ease), width 0.4s var(--b-ease), height 0.4s var(--b-ease), opacity 0.5s ease, filter 0.5s ease, border-color 0.2s ease, box-shadow 0.25s ease; }
+/* the camera's spring (camera.ts springEasing): cards glide on the same curve — a browser without linear() keeps the line above */
+.board-glide { transition: left 0.6s linear(0, 0.072, 0.22, 0.38, 0.526, 0.647, 0.743, 0.816, 0.87, 0.91, 0.939, 0.96, 0.974, 0.985, 0.992, 0.997, 1), top 0.6s linear(0, 0.072, 0.22, 0.38, 0.526, 0.647, 0.743, 0.816, 0.87, 0.91, 0.939, 0.96, 0.974, 0.985, 0.992, 0.997, 1), width 0.4s var(--b-ease), height 0.4s var(--b-ease), opacity 0.5s ease, filter 0.5s ease, border-color 0.2s ease, box-shadow 0.25s ease; }
 .board-node:hover { border-color: var(--b-hair-hi); box-shadow: var(--b-shadow-hi); }
 .board-node-sel { outline: 2px solid var(--b-accent); outline-offset: 2px; box-shadow: var(--b-shadow-hi); }
 .board-head { min-height: 18px; margin-bottom: 6px; gap: 7px; }
@@ -614,8 +636,6 @@ button.board-legend:hover { color: #fff; background: rgba(255, 255, 255, 0.05); 
 @keyframes board-in-calm { from { opacity: 0; transform: translateY(6px) scale(0.985); } to { opacity: 1; transform: none; } }
 .board-pointed::after { inset: -6px; border-radius: 18px; border: 2px solid var(--b-accent); box-shadow: none; }
 .board-lit { box-shadow: 0 0 0 2px var(--b-accent), var(--b-shadow-hi); }
-.board-far-face { background: var(--b-card-hi); }
-.board-far-face svg { filter: none; }
 .board-far-title { text-shadow: none; font-weight: 700; }
 .board-stat { filter: none; }
 /* the small things on a card: calm pills */

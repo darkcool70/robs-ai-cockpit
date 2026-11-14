@@ -6,6 +6,7 @@ import { useApp } from "../store";
 import { toggleDictation, voiceChoices } from "./voice";
 import { duration } from "./format";
 import { assistantOf } from "./assistants";
+import { shouldNotify, type SentLog } from "./notifyDedup";
 
 /** Face animation in the pop-up for each kind of notice. */
 const MOOD: Record<HudNote["kind"], string> = { done: "waiting", input: "waiting", limit: "blocked", loop: "done", failed: "blocked", goal: "done" };
@@ -13,7 +14,7 @@ const MOOD: Record<HudNote["kind"], string> = { done: "waiting", input: "waiting
 const lastStatus: Record<string, string | undefined> = {};
 const lastNotice: Record<string, string | null | undefined> = {};
 const lastLoopState: Record<string, string | undefined> = {};
-const lastSent: Record<string, number> = {};
+const sent: SentLog = {};
 let started = false;
 /** Last decisions, for diagnostics (window.__notifyLog in DevTools). */
 const log: string[] = [];
@@ -78,8 +79,12 @@ function subtitleOf(s: Session): string {
 async function send(s: Session, kind: HudNote["kind"], message: string) {
   const st = useApp.getState();
   const key = `${s.id}:${kind}`;
-  if (Date.now() - (lastSent[key] ?? 0) < 4000) return;
-  lastSent[key] = Date.now();
+  // "done" belongs to a turn: once per turn, and never for a turn that ended long ago.
+  const turn = kind === "done" ? s.runtime?.turnEndedAt ?? null : null;
+  if (!shouldNotify(sent, key, message, turn)) {
+    trace(`${kind} ${s.name} skipped (repeat or old turn)`);
+    return;
+  }
   const asst = assistantOf(st.assistants, s.id);
   const note: HudNote = {
     id: `${key}:${Date.now()}`,
