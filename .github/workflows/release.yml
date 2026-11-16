@@ -19,7 +19,7 @@ jobs:
       HAS_PRO_TOKEN: ${{ secrets.PRO_REPO_TOKEN != '' }}
       ROBS_LICENSE_URL: ${{ vars.ROBS_LICENSE_URL }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Pro needs its license server
         if: env.HAS_PRO_TOKEN == 'true' && env.ROBS_LICENSE_URL == ''
@@ -32,7 +32,7 @@ jobs:
 
       - name: Check out Robs AI Cockpit Pro (private)
         if: env.HAS_PRO_TOKEN == 'true'
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: darkcool70/robs-ai-cockpit-pro
           token: ${{ secrets.PRO_REPO_TOKEN }}
