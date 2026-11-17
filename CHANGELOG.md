@@ -6,6 +6,8 @@ All notable changes to this project are documented here. The format follows
 
 ## [Unreleased]
 
+## [0.4.2] - 2026-11-17
+
 ### Added
 - **Quick choice on the board (Board 3.0, Pro):** for small matters of taste the assistant puts 2–4 short chips on the board and goes on with its own pick right away. After a few seconds the card shrinks to one faint line; hover brings it back, a click on another option tells the assistant to change it (only when it differs), × removes it.
 - **Pictures side by side:** pictures that follow each other in a section stand in a row (three at most); two picture cards with the same words show two different pictures.
@@ -558,7 +560,8 @@ First public release.
 - Codex's "Update available" prompt now counts as a dialog: queued text is never typed into it
   (Enter there would run `npm install -g`), and the pane asks you to answer it.
 
-[Unreleased]: https://github.com/darkcool70/robs-ai-cockpit/compare/v0.4.1...HEAD
+[Unreleased]: https://github.com/darkcool70/robs-ai-cockpit/compare/v0.4.2...HEAD
+[0.4.2]: https://github.com/darkcool70/robs-ai-cockpit/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/darkcool70/robs-ai-cockpit/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/darkcool70/robs-ai-cockpit/compare/v0.3.1...v0.4.0
 [0.2.0]: https://github.com/darkcool70/robs-ai-cockpit/compare/v0.1.0...v0.2.0
