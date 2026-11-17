@@ -29,6 +29,11 @@ export function Cheatsheet() {
     ["+ / − · 0", "Zoom · show everything"],
     ["Double-click", "Empty spot: a note · card: open it"],
     ["Right-click · Ctrl K", "Add something · board commands"],
+    ["Shift + drag", "Selection rectangle (empty spot) · Ctrl A selects all"],
+    ["Middle button + drag", "Move the board"],
+    ["Ctrl D", "Duplicate the selected cards"],
+    ["Ctrl C / V", "Copy / paste cards (at the pointer)"],
+    ["Alt + arrows", "Nudge the selection by 8 (with Shift: 40)"],
   ];
   const voice: [string, string][] = [
     ["Ctrl Shift M", "Stumm / Ton an — the voice only, the microphone keeps working"],

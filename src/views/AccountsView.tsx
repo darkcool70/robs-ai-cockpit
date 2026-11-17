@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { open as openDialog, ask } from "@tauri-apps/plugin-dialog";
 import { FolderOpen, KeyRound, LogIn, Plus, RefreshCw, Terminal, Trash2, Wand2 } from "lucide-react";
 import { useApp } from "../store";
@@ -8,6 +8,7 @@ import { planOf, sameLogin, windowInfos } from "../lib/accountInfo";
 import { Badge, Button, Card, Field, FreeBadge, IconButton, Input, Meter, Modal, ProviderMark, SectionTitle, cx } from "../components/ui";
 import { AGENT_PROVIDERS, PROVIDERS, isFreeTier, providerInfo } from "../lib/providers";
 import { AccountHealth } from "./AccountHealth";
+import { LoginDialog } from "../components/LoginDialog";
 
 const AUTH: Record<string, { label: string; tone: "ok" | "warn" | "err" | "neutral" }> = {
   connected: { label: "Connected", tone: "ok" },
@@ -27,6 +28,8 @@ export function AccountsView() {
   const toast = useApp((s) => s.toast);
   const [adding, setAdding] = useState<Provider | null>(null);
   const [settingUp, setSettingUp] = useState(false);
+  const [login, setLogin] = useState<{ account: Account; device: boolean } | null>(null);
+  const closeLogin = useCallback(() => setLogin(null), []);
   const [usage, setUsage] = useState<UsageSummary | null>(null);
   const [history, setHistory] = useState<Record<string, QuotaWindow[]>>({});
 
@@ -147,7 +150,7 @@ export function AccountsView() {
               ) : (
                 <div className="grid grid-cols-[repeat(auto-fill,minmax(360px,1fr))] gap-3">
                   {list.map((a) => (
-                    <AccountCard key={a.id} account={a} quota={quota[a.id] ?? []} history={history[a.id] ?? []} tokens={usage?.byAccount.find((g) => g.key === a.id)?.totals.total ?? 0} />
+                    <AccountCard key={a.id} account={a} quota={quota[a.id] ?? []} history={history[a.id] ?? []} tokens={usage?.byAccount.find((g) => g.key === a.id)?.totals.total ?? 0} onLogin={(acc, device) => setLogin({ account: acc, device })} />
                   ))}
                 </div>
               )}
@@ -167,7 +170,8 @@ export function AccountsView() {
           </ul>
         </Card>
       </div>
-      {adding && <AddAccountDialog initialProvider={adding} onClose={() => setAdding(null)} />}
+      {adding && <AddAccountDialog initialProvider={adding} onClose={() => setAdding(null)} onLogin={(acc) => setLogin({ account: acc, device: false })} />}
+      {login && <LoginDialog key={login.account.id} account={login.account} device={login.device} onClose={closeLogin} />}
     </div>
   );
 }
@@ -179,19 +183,13 @@ const LOGIN_NOTE: Partial<Record<Provider, (name: string) => string>> = {
   antigravity: () => `On its first start agy asks how to sign in: choose Google sign-in, log in in the browser, paste the code back, then accept its terms and the folder trust question.`,
 };
 
-function AccountCard({ account: a, quota, history, tokens }: { account: Account; quota: QuotaWindow[]; history: QuotaWindow[]; tokens: number }) {
+function AccountCard({ account: a, quota, history, tokens, onLogin }: { account: Account; quota: QuotaWindow[]; history: QuotaWindow[]; tokens: number; onLogin: (a: Account, device: boolean) => void }) {
   const { openUtility, refreshAccounts, toast, createSession, activeProjectId } = useApp.getState();
   const accounts = useApp((st) => st.accounts);
   const twins = sameLogin(accounts, a);
   const running = useApp((st) => Object.values(st.sessions).filter((x) => x.kind === "agent" && !x.closed && x.accountId === a.id && x.runtime?.running).map((x) => x.name).join(", "));
   const [checking, setChecking] = useState(false);
-  const [loggingIn, setLoggingIn] = useState(false);
-  const login = async (deviceAuth = false) => {
-    if (loggingIn) return;
-    setLoggingIn(true);
-    try { await openUtility(deviceAuth ? "login-device" : "login", a.id); }
-    finally { setLoggingIn(false); }
-  };
+  const login = (deviceAuth = false) => onLogin(a, deviceAuth);
   const auth = AUTH[a.authStatus] ?? AUTH.unknown;
   const info = providerInfo(a.provider);
   const free = isFreeTier(a.provider);
@@ -318,11 +316,11 @@ function AccountCard({ account: a, quota, history, tokens }: { account: Account;
         </dl>
       </div>
       <div className="mt-auto flex flex-wrap gap-1.5 border-t border-line px-3 py-2">
-        <Button size="sm" disabled={loggingIn} variant={a.authStatus === "connected" ? "default" : "primary"} onClick={() => void login()}>
-          <LogIn size={12} /> {loggingIn ? "Opening login…" : a.authStatus === "connected" ? (a.provider === "antigravity" ? "Open agy (sign-in)" : "Log in again / switch account") : info?.loginLabel ?? "Log in"}
+        <Button size="sm" variant={a.authStatus === "connected" ? "default" : "primary"} onClick={() => login()}>
+          <LogIn size={12} /> {a.authStatus === "connected" ? (a.provider === "antigravity" ? "Open agy (sign-in)" : "Log in again / switch account") : info?.loginLabel ?? "Log in"}
         </Button>
         {a.provider === "codex" && (
-          <Button size="sm" disabled={loggingIn} onClick={() => void login(true)} title="Shows a short code; open the link in any browser window (e.g. a private one) and sign in with the account you want">
+          <Button size="sm" onClick={() => login(true)} title="Shows a short code; open the link in any browser window (e.g. a private one) and sign in with the account you want">
             <KeyRound size={12} /> Device code login
           </Button>
         )}
@@ -343,8 +341,8 @@ function AccountCard({ account: a, quota, history, tokens }: { account: Account;
   );
 }
 
-function AddAccountDialog({ onClose, initialProvider }: { onClose: () => void; initialProvider: Provider }) {
-  const { refreshAccounts, toast, openUtility } = useApp.getState();
+function AddAccountDialog({ onClose, onLogin, initialProvider }: { onClose: () => void; onLogin: (a: Account) => void; initialProvider: Provider }) {
+  const { refreshAccounts, toast } = useApp.getState();
   const accounts = useApp((s) => s.accounts);
   const [provider, setProvider] = useState<Provider>(initialProvider);
   const [name, setName] = useState("");
@@ -366,7 +364,7 @@ function AddAccountDialog({ onClose, initialProvider }: { onClose: () => void; i
       const acc = await api.accountAdd({ provider, name: name.trim() || suggested, mode, configDir: mode === "existing" ? dir || undefined : undefined });
       await refreshAccounts();
       onClose();
-      if (login) await openUtility("login", acc.id);
+      if (login) onLogin(acc);
       else {
         await api.accountCheckAuth(acc.id).catch(() => {});
         await refreshAccounts();

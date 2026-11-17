@@ -37,6 +37,10 @@ export interface VoiceHooks {
   listenTimeoutMs?: (sessionId: string) => number | null;
   /** You said nothing in a conversation: true when that was handled (e.g. the next slide); `listen` opens the mic again. */
   onSilence?: (sessionId: string, listen: () => void) => boolean;
+  /** The session waits for the user's yes / no (pending actions): „nein danke“ is an answer then, not a goodbye. */
+  awaitingAnswer?: (sessionId: string) => boolean;
+  /** The user closed the conversation with a remark („passt so“, „fertig“) — nothing was sent. */
+  onClosed?: (sessionId: string, text: string) => void;
   /** Files dropped at (x, y) on the screen: true when something there took them (the board). */
   fileDrop?: (paths: string[], x: number, y: number) => boolean;
 }

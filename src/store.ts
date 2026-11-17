@@ -199,7 +199,7 @@ interface State {
   duplicateSession: (id: string) => Promise<void>;
   renameSession: (id: string, name: string) => Promise<void>;
   closeSession: (id: string) => Promise<void>;
-  openUtility: (kind: "login" | "login-device" | "status", accountId: string) => Promise<void>;
+  openUtility: (kind: "login" | "login-device" | "status", accountId: string, opts?: { show?: boolean }) => Promise<Session | null>;
   setMode: (m: LayoutMode) => void;
   /** Put a session into a pane; if it is shown elsewhere the two swap places. */
   placeSession: (id: string, pane: number) => void;
@@ -910,7 +910,7 @@ export const useApp = create<State>((set, get) => ({
     });
   },
 
-  openUtility: async (kind, accountId) => {
+  openUtility: async (kind, accountId, opts) => {
     // Utility terminals need a size before the pane exists; use a sensible default,
     // the pane resizes the PTY once mounted.
     try {
@@ -918,10 +918,14 @@ export const useApp = create<State>((set, get) => ({
         ? await api.accountStatusTerminal(accountId, 110, 30)
         : await api.accountLogin(accountId, 110, 30, kind === "login-device");
       get().upsertSession(s);
+      // show: false = the caller embeds the terminal itself (login dialog); no tab, no view switch.
+      if (opts?.show === false) return s;
       set((st) => ({ order: [...st.order, s.id] }));
       get().showSession(s.id);
+      return s;
     } catch (e) {
       get().toast(errMsg(e), "error");
+      return null;
     }
   },
 

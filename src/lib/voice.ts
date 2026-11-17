@@ -12,6 +12,8 @@ import { logVoice } from "./voicelog";
 import { stopFillers } from "./fillers";
 import { noteVoiceTurn } from "./speakTurn";
 import { applySpeechControl, spokenSpeechControl } from "./mute";
+import { closingRemark } from "./talkFlow";
+import { cantAnswer, cantAnswerSpeech, holdsMessages } from "./cantAnswer";
 
 // Ctrl+Alt+Space is often taken (IMEs, overlays); Alt+Shift+Space is free and clashes with no editor.
 export const DEFAULT_FOCUSED_HOTKEY = "Alt+Shift+Space";
@@ -656,6 +658,8 @@ async function onShortcut(target: string, ev: ShortcutEvent) {
 }
 
 let endOfSpeech: ((level: number) => boolean | "timeout") | null = null;
+/** The microphone is open only for a short follow-up (the answer asked nothing): no word → quiet standby, no „Standby.“ */
+let followUp = false;
 
 /**
  * M15 — backchannel: while you talk for longer, a soft "mhm" in a short breath pause shows that it
@@ -748,11 +752,12 @@ export async function stopMonitor() {
 }
 
 /** The recording that was already running becomes the dictation (keeps the last `keepMs`). */
-async function adopt(m: Monitor, keepMs: number) {
+async function adopt(m: Monitor, keepMs: number, waitMs?: number) {
   const st = useApp.getState();
   await api.sttKeepRecent(keepMs).catch(() => {});
   const silence = Number(st.settings.voiceTalkSilenceMs ?? 900);
-  endOfSpeech = silenceDetector(silence > 0 ? silence : 900, 80, Number(st.settings.voiceStandbyMs ?? 8000), Number.isFinite(m.floor) ? m.floor : 0.004);
+  followUp = waitMs != null;
+  endOfSpeech = silenceDetector(silence > 0 ? silence : 900, 80, waitMs ?? Number(st.settings.voiceStandbyMs ?? 8000), Number.isFinite(m.floor) ? m.floor : 0.004);
   st.setVoice({ state: "recording", target: m.id, level: 0, conversation: true });
   backchannel = st.settings.voiceBackchannel !== false ? backchannelDetector() : null;
 }
@@ -784,7 +789,8 @@ export async function talkToOperator() {
   await startDictation(op, { conversation: st.settings.voiceOperatorTalk !== false });
 }
 
-export async function startDictation(id: string, opts: { conversation?: boolean } = {}) {
+/** `waitMs`: how long to wait for the first word (a short follow-up after an answer that asked nothing). */
+export async function startDictation(id: string, opts: { conversation?: boolean; waitMs?: number } = {}) {
   const st = useApp.getState();
   if (st.voice.state !== "idle") return;
   // The microphone is already open (it listened while the answer was read): carry on with it.
@@ -793,7 +799,7 @@ export async function startDictation(id: string, opts: { conversation?: boolean 
     monitor = null;
     detect = null;
     if (m.id === id) {
-      await adopt(m, 300);
+      await adopt(m, 300, opts.waitMs);
       cue("start");
       return;
     }
@@ -803,7 +809,8 @@ export async function startDictation(id: string, opts: { conversation?: boolean 
   // In a conversation a turn ends sooner: people take over after ~200 ms, 1.5 s feels robotic.
   const silence = talking ? Number(st.settings.voiceTalkSilenceMs ?? 900) : Number(st.settings.voiceSilenceMs ?? 1500);
   // Nobody speaks: a conversation goes to standby after a while, a single dictation stops later.
-  const noSpeech = talking ? voiceHooks.listenTimeoutMs?.(id) ?? Number(st.settings.voiceStandbyMs ?? 8000) : 15000;
+  const noSpeech = talking ? voiceHooks.listenTimeoutMs?.(id) ?? opts.waitMs ?? Number(st.settings.voiceStandbyMs ?? 8000) : 15000;
+  followUp = talking && opts.waitMs != null;
   endOfSpeech = st.settings.voiceStopOnSilence === false && !talking ? null : silenceDetector(silence > 0 ? silence : 1500, 80, noSpeech);
   st.setVoice({ state: "recording", target: id, level: 0, conversation: talking });
   backchannel = talking && st.settings.voiceBackchannel !== false ? backchannelDetector() : null;
@@ -929,6 +936,11 @@ export async function stopDictation(send = false) {
       return;
     }
     if (r.text) dropHeldSpeech();
+    // „ne, das passt so“ / „fertig“ / „danke“: the user is done — nothing is sent, the conversation ends
+    if (r.text && inTalk && chosen && closingRemark(r.text, spokenNames()) && !voiceHooks.awaitingAnswer?.(chosen)) {
+      endConversation(chosen, r.text);
+      return;
+    }
     const control = r.text && commands ? parseControl(r.text) : null;
     if (control) {
       logVoice({ heard: r.text, to: "Cockpit", what: "command" });
@@ -951,6 +963,28 @@ export async function stopDictation(send = false) {
     }
     if (discarded !== job && hotkeysDirty) void syncHotkeys();
   }
+}
+
+/** The names the user calls the assistants by (in front of or after a sentence they are not part of it). */
+export function spokenNames(): string[] {
+  const st = useApp.getState();
+  const custom = typeof st.settings.voiceWakeWords === "string" ? st.settings.voiceWakeWords.split(",").map((w) => w.trim()).filter(Boolean) : [];
+  return [...new Set([...custom, ...st.assistants.map((a) => a.name), "Atlas"])];
+}
+
+/** The user closed the conversation: quiet at once, the microphone stays shut until the name or the key. */
+export function endConversation(id: string | null, heard: string) {
+  const st = useApp.getState();
+  stopFillers();
+  dropHeldSpeech();
+  stopSpeaking(true);
+  void stopMonitor();
+  if (st.talkSession) useApp.setState({ talkSession: null });
+  playSfx("standby");
+  const name = spokenNames()[0];
+  st.toast(st.settings.voiceLanguage === "en" ? `👋 Okay — say “${name}” when you need me` : `👋 Alles klar — sag „${name}“, wenn du mich brauchst`, "info");
+  logVoice({ heard, to: "Cockpit", what: "conversation closed" });
+  if (id) voiceHooks.onClosed?.(id, heard);
 }
 
 // Countdown before a dictation is sent: Esc keeps it typed but unsent, Enter or the shortcut sends now.
@@ -1012,6 +1046,19 @@ export async function deliver(id: string, text: string, send: boolean) {
     return;
   }
   const talking = st.talkSession === id;
+  // its usage limit is used up: the message would wait in the queue and be carried out hours later.
+  // Say so in one sentence and end the conversation — nothing is sent, nobody is kept waiting.
+  const trouble = cantAnswer(s);
+  if (holdsMessages(trouble)) {
+    const say = cantAnswerSpeech(trouble!, st.settings.voiceLanguage === "en");
+    stopFillers();
+    void stopMonitor();
+    if (talking) useApp.setState({ talkSession: null });
+    st.toast(`${s.name}: ${say}`, "warn");
+    if (st.settings.voiceMuted !== true && st.settings.ttsEnabled !== false) speak(say, { sessionId: id, name: s.name });
+    logVoice({ heard: text, to: s.name, what: "not sent — usage limit" });
+    return;
+  }
   let msg = text;
   if (voiceHooks.beforeSend) {
     const r = await voiceHooks.beforeSend(id, text, true);
@@ -1080,7 +1127,9 @@ export async function initVoice() {
         if (talk && voiceHooks.onSilence?.(talk, listen)) return;
         if (talk) {
           useApp.setState({ talkSession: null });
-          signal("standby", phrase("standby"));
+          // after a short follow-up window nothing needs saying: a soft sound, no „Standby.“
+          if (followUp) playSfx("standby");
+          else signal("standby", phrase("standby"));
         } else playSfx("stop");
       });
     } else if (end) {

@@ -7,8 +7,9 @@ use tauri::{AppHandle, Manager, WebviewUrl, WebviewWindowBuilder};
 use crate::error::{AppError, AppResult};
 
 pub const LABEL: &str = "hud";
-const WIDTH: f64 = 400.0;
-const MARGIN: f64 = 12.0;
+// Widest the hud ever gets (320 px cards + the 8 px shadow margin on both sides, see lib/hudModel.ts).
+const WIDTH: f64 = 340.0;
+const MARGIN: f64 = 10.0;
 
 /// WebView2 arguments for every window. Chromium throttles hidden, minimized and occluded
 /// views (after ~5 min timers wake at most once a minute), which delayed "agent is done"

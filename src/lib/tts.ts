@@ -12,10 +12,12 @@ import { assistantOf } from "./assistants";
 import { voiceHooks } from "./hooks";
 import { audioContext, playSfx } from "./sfx";
 import { BREAKPOINT_MS, atBreakpoint, nextBreakpointMs, whenFree } from "./attention";
-import { type FillerLang, initFillers, startFillers, stopFillers } from "./fillers";
+import { type FillerLang, fillerSession, initFillers, startFillers, stopFillers } from "./fillers";
+import { cantAnswer, cantAnswerSpeech } from "./cantAnswer";
 import { type SpeechLang, detectLang, missingGermanVoice, voiceForLang } from "./speechLang";
 import { listenAfter, speechDecision, spokenText } from "./speakPolicy";
 import { briefSpeech } from "./speechControl";
+import { expectsReply, followUpMs } from "./talkFlow";
 import { saidOnce, speakMode, turnKind } from "./speakTurn";
 
 export type VoiceFx = "natural" | "jarvis" | "robot";
@@ -847,11 +849,17 @@ function speechFor(id: string, text: string): string {
 }
 
 /** Mic on again for the next sentence of the conversation (unless the agent will answer again by itself). */
-function listenAgain(id: string) {
+function listenAgain(id: string, waitMs?: number) {
   const now = useApp.getState();
   if (now.talkSession !== id || now.voice.state !== "idle") return;
   if (voiceHooks.holdListening?.(id)) return;
-  void startDictation(id, { conversation: true });
+  // the answer asked nothing and follow-ups are off: the conversation rests until the name is said
+  if (waitMs === 0) {
+    useApp.setState({ talkSession: null });
+    void stopMonitor();
+    return;
+  }
+  void startDictation(id, { conversation: true, waitMs });
 }
 
 let started = false;
@@ -880,14 +888,19 @@ export function initTts() {
       useApp.setState({ talkSession: null });
       return;
     }
+    // a limit or a failed turn is told by the subscriber below (one plain sentence, then quiet)
+    if (cantAnswer(s)) return;
     if (!turnJustEnded(s, prev.sessions[id]) || st.voice.state !== "idle") return;
     const notice = s.runtime?.notice;
     const text = notice ?? s.runtime?.lastMessage ?? "";
     // Who asked for this turn decides whether it is spoken (speakPolicy): your words are answered
     // aloud, news nobody asked for stays text in „Nur wenn ich frage“.
     const kind = notice ? "needsYou" : turnKind(s);
-    let say = spokenText(kind, speakMode(st.settings), notice ? summarize(notice) : speechFor(id, text));
+    const full = notice ? summarize(notice) : speechFor(id, text);
+    let say = spokenText(kind, speakMode(st.settings), full);
     if (say && notice && !saidOnce.first(`${id}|${notice}`)) say = "";
+    // a question waits for your answer; after anything else the microphone stays open only briefly
+    const wait = notice || expectsReply(full) ? undefined : followUpMs(st.settings.voiceFollowUpMs);
     // „sprich weniger“: two sentences at most
     if (say && st.settings.voiceBrief === true) say = briefSpeech(say);
     const listen = !notice && listenAfter(kind);
@@ -895,12 +908,32 @@ export function initTts() {
     if (say && outputMuted()) say = "";
     if (!say) {
       // Nothing to say (e.g. only actions): give the other listeners this update first.
-      if (listen) window.setTimeout(() => listenAgain(id), 60);
+      if (listen) window.setTimeout(() => listenAgain(id, wait), 60);
       return;
     }
-    speak(say, { sessionId: id, name: s.name, append: true, onEnd: () => { if (listen) listenAgain(id); else void stopMonitor(); } });
+    speak(say, { sessionId: id, name: s.name, append: true, onEnd: () => { if (listen) listenAgain(id, wait); else void stopMonitor(); } });
     // full duplex: listen while it speaks, so you can interrupt
     if (listen) void startMonitor(id);
+  });
+  // It cannot answer (its limit is used up, its login expired, the provider is down): say so once,
+  // plainly, and stop — no more „Moment.“, no open microphone waiting for an answer that cannot come.
+  useApp.subscribe((st, prev) => {
+    if (st.sessions === prev.sessions) return;
+    const waiting = fillerSession();
+    for (const id of new Set([st.talkSession, waiting])) {
+      if (!id) continue;
+      const s = st.sessions[id];
+      const c = cantAnswer(s);
+      const was = cantAnswer(prev.sessions[id]);
+      if (!s || !c || (was && was.kind === c.kind && was.at === c.at)) continue;
+      stopFillers();
+      void stopMonitor();
+      if (st.talkSession === id) useApp.setState({ talkSession: null });
+      if (!saidOnce.first(`cant|${id}|${c.kind}|${c.at}`)) continue;
+      const say = cantAnswerSpeech(c, lang() === "en");
+      if (outputMuted() || st.settings.ttsEnabled === false) st.toast(`${s.name}: ${say}`, "warn");
+      else speak(say, { sessionId: id, name: s.name });
+    }
   });
   // Outside a conversation: answers of the sessions you talked to (or of every agent), and short
   // callouts for the others.

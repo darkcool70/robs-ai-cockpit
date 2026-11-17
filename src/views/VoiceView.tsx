@@ -273,7 +273,7 @@ export function VoiceView() {
           <Toggle on={settings.boardSounds !== false} onChange={(v) => put("boardSounds", v)} hint="Soft sounds on the operator's board: cards landing, the pen drawing, the spotlight, a page turning (Pro).">
             Board sounds
           </Toggle>
-          <Toggle on={settings.ambientOrb !== false} onChange={(v) => put("ambientOrb", v)} hint="A small glowing orb bottom right while the cockpit is in the background: blue breathes while agents work, amber pulses when one needs you, green when all are done. Hover for the list, click to open.">
+          <Toggle on={settings.ambientOrb !== false} onChange={(v) => put("ambientOrb", v)} hint="A small glowing orb bottom right while the cockpit is in the background: blue breathes while agents work, amber pulses when one needs you, green when all are done. Hover for the list, click to open; its small × hides it until something changes.">
             Ambient orb
           </Toggle>
           <Toggle on={settings.voicePolite !== false} onChange={(v) => put("voicePolite", v)} hint="Reports outside a conversation wait until you stop typing for 3 seconds (in any program) — at the latest 45 seconds. Interruptions at a natural pause cost the least attention.">

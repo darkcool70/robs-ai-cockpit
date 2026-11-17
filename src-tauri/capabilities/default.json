@@ -15,6 +15,7 @@
     "dialog:allow-message",
     "core:window:allow-request-user-attention",
     "core:window:allow-set-title",
+    "core:window:allow-destroy",
     "global-shortcut:allow-register",
     "global-shortcut:allow-unregister",
     "global-shortcut:allow-unregister-all",

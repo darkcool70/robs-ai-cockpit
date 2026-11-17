@@ -175,6 +175,11 @@ export function stopFillers(answered = false) {
   run = null;
 }
 
+/** The session the waiting phrases are running for (null: none). */
+export function fillerSession(): string | null {
+  return run?.sessionId ?? null;
+}
+
 export function fillersRunning(sessionId?: string): boolean {
   return !!run && (!sessionId || run.sessionId === sessionId);
 }
@@ -277,6 +282,8 @@ export function initFillers() {
     const id = run.sessionId;
     const s = st.sessions[id];
     if (!s?.runtime?.running) return stopFillers();
+    // it cannot answer (limit, failed turn): nothing is coming — „Moment.“, „Ich bin noch dran.“ would be a lie
+    if (s.runtime.status === "rate-limited" || s.runtime.status === "error") return stopFillers();
     if (st.sessions !== prev.sessions && turnJustEnded(s, prev.sessions[id])) return stopFillers(true);
     if (st.speaking && !prev.speaking) return stopFillers(true);
     if (st.voice.state === "recording" && prev.voice.state !== "recording") return stopFillers();

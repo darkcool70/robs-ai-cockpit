@@ -148,6 +148,10 @@ pub fn run() {
                 let _ = w.unminimize();
                 let _ = w.show();
                 let _ = w.set_focus();
+            } else {
+                // The main window is gone but the process still lives (it should have ended with
+                // the window): end it, so the next start works instead of doing nothing.
+                app.exit(0);
             }
         }));
     }
@@ -155,6 +159,20 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        // Only the main window is remembered: hud.rs places the notification window itself, and
+        // the presenter and browser windows are opened per use. No VISIBLE/DECORATIONS flags, so
+        // a saved state can never start the app hidden or change the window chrome. The plugin
+        // drops a saved position that lies on no connected monitor and then keeps the default.
+        .plugin(
+            tauri_plugin_window_state::Builder::default()
+                .with_state_flags(
+                    tauri_plugin_window_state::StateFlags::SIZE
+                        | tauri_plugin_window_state::StateFlags::POSITION
+                        | tauri_plugin_window_state::StateFlags::MAXIMIZED,
+                )
+                .with_filter(|label| label == "main")
+                .build(),
+        )
         .setup(move |app| {
             let output_tx = commands::spawn_output_emitter(app.handle().clone());
             app.manage(AppState { db: db.clone(), pty: pty.clone(), runtimes: runtimes.clone(), clis: parking_lot::Mutex::new(clis), output_tx, lifecycle: parking_lot::Mutex::new(()), stt: stt.clone(), tts: tts.clone(), wake: wake.clone(), remote: Arc::new(remote::Remote::default()) });
@@ -342,6 +360,15 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while building tauri application")
         .run(move |app, event| {
+            // Closing the main window ends the cockpit. Without this the hidden notification
+            // window (and pages opened in their own windows) kept the process alive: invisible,
+            // still holding the single-instance lock — a new start did nothing until it was
+            // ended in the Task Manager.
+            if let tauri::RunEvent::WindowEvent { label, event: tauri::WindowEvent::Destroyed, .. } = &event {
+                if label == "main" {
+                    app.exit(0);
+                }
+            }
             if let tauri::RunEvent::Exit = event {
                 // Terminate every child CLI when the cockpit exits.
                 let state = app.state::<AppState>();

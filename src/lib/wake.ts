@@ -6,7 +6,8 @@ import { create } from "zustand";
 import { api, errMsg } from "./api";
 import { useApp } from "../store";
 import { voiceHooks } from "./hooks";
-import { deliver, parseControl, runControl, startDictation } from "./voice";
+import { deliver, endConversation, parseControl, runControl, spokenNames, startDictation } from "./voice";
+import { closingRemark } from "./talkFlow";
 import { callout } from "./tts";
 import { playSfx } from "./sfx";
 import { logVoice } from "./voicelog";
@@ -70,6 +71,11 @@ async function onWake(command: string) {
   if (control) {
     logVoice({ heard: text, to: "Cockpit", what: "wake word · command" });
     await runControl(control);
+    return;
+  }
+  // „Jana, danke, das war's“: nothing to do — and an open conversation ends
+  if (text && closingRemark(text, spokenNames()) && !voiceHooks.awaitingAnswer?.(voiceHooks.operatorSession?.() ?? "")) {
+    endConversation(null, text);
     return;
   }
   const id = await target();

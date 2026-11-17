@@ -35,6 +35,7 @@ import { ReviewView } from "./views/ReviewView";
 import { PinsView } from "./views/PinsView";
 import { Cheatsheet } from "./components/Cheatsheet";
 import { Tour, TOUR_VERSION } from "./components/Tour";
+import { CloseGuard } from "./components/CloseGuard";
 import { cx } from "./components/ui";
 import { api, errMsg } from "./lib/api";
 import { savedKeys } from "./lib/remoteKeys";
@@ -204,6 +205,7 @@ export default function App() {
       <CommandPalette />
       <Cheatsheet />
       <Tour />
+      <CloseGuard />
       <div className="pointer-events-none fixed right-3 bottom-8 z-[60] flex w-[380px] flex-col gap-2">
         {toasts.map((t) => (
           <div

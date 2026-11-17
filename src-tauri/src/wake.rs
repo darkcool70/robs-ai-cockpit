@@ -20,7 +20,57 @@ use tauri::{AppHandle, Emitter};
 use crate::stt::{rms, Config, Stt};
 
 /// How Whisper tends to write a spoken name, plus greetings in front of it.
-static LEAD: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?i)^\W*(?:(?:hey|hi|hallo|hello|ok|okay|yo|na)\W+)?").unwrap());
+/// Up to two of them: "Okay, hey Jana", "So, Jana", "Ähm, Jana".
+static LEAD: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"(?i)^\W*(?:(?:hey|hi|hallo|hello|ok|okay|oke|yo|na|so|also|ähm|äh|ehm|hm|und|du|ach|ja|moin|servus|guten morgen|guten tag|guten abend|sag mal|hör mal|pass auf)\W+){0,2}").unwrap());
+
+/// A name as it sounds, so that spellings of the same sound are equal: "Yana", "Janna", "Jahna",
+/// "Iana" → "jana"; "Adlas", "Attlas" → "atlas". Whisper writes a short name differently from one
+/// time to the next; the sound is what the user said.
+pub fn sound(word: &str) -> String {
+    let w: String = word.to_lowercase().chars().filter(|c| c.is_alphanumeric()).collect();
+    let w = w.replace("ph", "f").replace("th", "t").replace("ck", "k").replace("sch", "s").replace("ie", "i");
+    let chars: Vec<char> = w.chars().collect();
+    let vowel = |c: char| "aeiouäöü".contains(c);
+    let mut out = String::new();
+    for (i, &c) in chars.iter().enumerate() {
+        let next = chars.get(i + 1).copied();
+        let c = match c {
+            'y' => 'j',
+            // "Iana", "Ianna": an i in front of a vowel at the start is a j
+            'i' if i == 0 && next.is_some_and(vowel) => 'j',
+            'c' | 'g' | 'q' => 'k',
+            'z' | 'ß' => 's',
+            'w' | 'v' => 'f',
+            'd' => 't',
+            'b' => 'p',
+            // a silent h ("Jahna", "Hannah" keeps its first)
+            'h' if i > 0 => continue,
+            c => c,
+        };
+        if out.chars().last() != Some(c) {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// The same name by its sound: equal, or equal up to the last vowel ("Jana" / "Jane" / "Janna").
+fn sounds_like(heard: &str, word: &str) -> bool {
+    let (a, b) = (sound(heard), sound(word));
+    if a.chars().count() < 3 || b.chars().count() < 3 {
+        return false;
+    }
+    if a == b {
+        return true;
+    }
+    let stem = |s: &str| -> String {
+        let t = s.trim_end_matches(|c: char| "aeo".contains(c));
+        if t.chars().count() >= 3 { t.to_string() } else { s.to_string() }
+    };
+    let (la, lb) = (a.chars().count() as i32, b.chars().count() as i32);
+    (la - lb).abs() <= 1 && la >= 4 && lb >= 4 && stem(&a) == stem(&b)
+}
 
 fn variants(word: &str) -> Vec<String> {
     let w = word.trim().to_lowercase();
@@ -48,6 +98,13 @@ pub fn wake_match(text: &str, words: &[String]) -> Option<String> {
                     best = Some(best.map_or(v.len(), |b: usize| b.max(v.len())));
                 }
             }
+        }
+    }
+    // not letter for letter: the first word by its sound ("Yana, mach …" for "Jana")
+    if best.is_none() {
+        let first: String = rest.chars().take_while(|c| c.is_alphanumeric()).collect();
+        if words.iter().filter(|w| w.trim().chars().count() >= 3).any(|w| sounds_like(&first, w.trim())) {
+            best = Some(first.len());
         }
     }
     let n = best?;
@@ -110,11 +167,15 @@ pub struct Detector {
     awake: bool,
     /// an utterance that was not for us: wait for its pause before listening again
     ignoring: bool,
+    /// what the start of the utterance said (the wake check) — reused when nothing came after it
+    head: String,
+    /// somebody kept speaking after the wake check
+    more: bool,
 }
 
 impl Detector {
     pub fn new(rate: u32) -> Self {
-        Self { rate, frame: (rate as usize / 50).max(1), vad: Vad::default(), history: Vec::new(), utterance: None, checked: false, awake: false, ignoring: false }
+        Self { rate, frame: (rate as usize / 50).max(1), vad: Vad::default(), history: Vec::new(), utterance: None, checked: false, awake: false, ignoring: false, head: String::new(), more: false }
     }
 
     fn samples(&self, ms: usize) -> usize {
@@ -127,6 +188,8 @@ impl Detector {
         self.checked = false;
         self.awake = false;
         self.ignoring = false;
+        self.head.clear();
+        self.more = false;
     }
 
     /// Feed new samples; `recognise` turns audio into text (Whisper). Returns what happened.
@@ -161,13 +224,17 @@ impl Detector {
                 Some(u) => u.len() * 1000 / self.rate as usize,
                 None => continue,
             };
-            let ended = self.vad.quiet_ms() >= END_SILENCE_MS;
-            // 1. does it start with the wake word? (once, on the first ~2 s)
-            if !self.checked && (len_ms >= CHECK_MS || ended) {
+            let quiet = self.vad.quiet_ms();
+            let ended = quiet >= END_SILENCE_MS;
+            // 1. does it start with the wake word? (once, on the first ~2 s — or at the first
+            //    short pause: a name alone is over after half a second)
+            if !self.checked && (len_ms >= CHECK_MS || quiet >= CHECK_QUIET_MS) {
                 self.checked = true;
                 let n = self.samples(CHECK_MS);
                 let head = self.utterance.as_ref().map(|u| u[..n.min(u.len())].to_vec()).unwrap_or_default();
-                self.awake = wake_match(&recognise(&head, self.rate), words).is_some();
+                self.head = recognise(&head, self.rate);
+                self.more = len_ms > CHECK_MS;
+                self.awake = wake_match(&self.head, words).is_some();
                 if self.awake {
                     out.push(WakeEvent::Heard);
                 } else {
@@ -177,13 +244,20 @@ impl Detector {
                     continue;
                 }
             }
-            // 2. awake: keep recording the same breath until a pause, then it is the command
-            if self.awake && (ended || len_ms >= MAX_COMMAND_MS) {
+            if self.awake && speaking && quiet == 0 {
+                self.more = true;
+            }
+            // 2. awake: keep recording the same breath until a pause, then it is the command.
+            //    Just the name and nothing after it: answer at once, no second listening pass.
+            let name_only = self.awake && !self.more && quiet >= NAME_ONLY_MS && wake_match(&self.head, words).is_some_and(|t| t.is_empty());
+            if self.awake && (ended || name_only || len_ms >= MAX_COMMAND_MS) {
                 let audio = self.utterance.take().unwrap_or_default();
-                let text = recognise(&audio, self.rate);
+                // nothing was said after the check: what was heard then is the whole sentence
+                let text = if self.more { recognise(&audio, self.rate) } else { std::mem::take(&mut self.head) };
                 out.push(WakeEvent::Command(wake_match(&text, words).unwrap_or(text)));
                 self.checked = false;
                 self.awake = false;
+                self.more = false;
             }
         }
         out
@@ -204,6 +278,10 @@ pub struct WakeConfig {
 
 const PREROLL_MS: usize = 350;
 const CHECK_MS: usize = 2000;
+/// A short pause is enough to check for the name (it need not wait for the end of the sentence).
+const CHECK_QUIET_MS: u32 = 460;
+/// Only the name was said and nothing follows: answer after this pause.
+const NAME_ONLY_MS: u32 = 620;
 const END_SILENCE_MS: u32 = 900;
 const MAX_COMMAND_MS: usize = 20_000;
 
@@ -323,6 +401,22 @@ mod tests {
         assert_eq!(wake_match("atlas.", &words).as_deref(), Some(""));
         assert_eq!(wake_match("At las, Status bitte", &words).as_deref(), Some("Status bitte"));
         assert_eq!(wake_match("Okay, Atlass. Weiter.", &words).as_deref(), Some("Weiter."));
+    }
+
+    #[test]
+    fn the_name_counts_by_its_sound() {
+        let jana = w(&["Jana"]);
+        for heard in ["Jana, mach die Karte kleiner", "Yana, mach die Karte kleiner", "Janna mach die Karte kleiner", "Jahna, mach die Karte kleiner", "Hey Jana, mach die Karte kleiner", "Okay, hey Jana. Mach die Karte kleiner", "So, Jana, mach die Karte kleiner", "Ähm, Iana, mach die Karte kleiner", "Jane, mach die Karte kleiner"] {
+            assert_eq!(wake_match(heard, &jana).as_deref().map(|t| t.to_lowercase()), Some("mach die karte kleiner".to_string()), "{heard}");
+        }
+        assert_eq!(wake_match("Yana?", &jana).as_deref(), Some(""));
+        for other in ["Ja, na klar machen wir das", "Jaja, schon gut", "Januar wird kalt", "Hannah kommt später", "Diana hat angerufen", "Ich habe Jana gesagt", "Ja.", "Jan kommt gleich", "Jena ist schön"] {
+            assert_eq!(wake_match(other, &jana), None, "{other}");
+        }
+        let atlas = w(&["Atlas"]);
+        assert_eq!(wake_match("Adlass, zeig alles", &atlas).as_deref(), Some("zeig alles"));
+        assert_eq!(wake_match("Atlasgebirge ist hoch", &atlas), None);
+        assert_eq!((sound("Yana"), sound("Jahna"), sound("Janna")), ("jana".to_string(), "jana".to_string(), "jana".to_string()));
     }
 
     #[test]

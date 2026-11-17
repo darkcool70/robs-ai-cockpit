@@ -41,6 +41,8 @@ sha2 = "0.11.0"
 zip = { version = "8.6.0", default-features = false, features = ["deflate"] }
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
+# remembers the main window's size, position and maximized state
+tauri-plugin-window-state = "2"
 # Pro edition only (license tokens): see docs/PRO.md
 ed25519-dalek = { version = "2", optional = true }
 # board: pictures from the web as data URLs
